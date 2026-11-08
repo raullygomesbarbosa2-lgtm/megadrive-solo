@@ -29,8 +29,8 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.2.0
-          name: Mega Drive Solo v1.2.0
+          tag_name: v1.3.0
+          name: Mega Drive Solo v1.3.0
           prerelease: true
-          body: 'Modo imersivo: oculta barra de status e navegação Android durante o jogo e restaura ao recuperar o foco, usando gesto de borda para mostrar temporariamente.'
+          body: 'Correção de joystick multitoque para não prender direção; layout de controle Mega Drive 6 botões A/B/C/X/Y/Z; mapeamento Bluetooth mais flexível.'
           files: app/build/outputs/apk/debug/app-debug.apk
