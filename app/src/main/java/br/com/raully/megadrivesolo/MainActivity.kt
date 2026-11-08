@@ -160,8 +160,13 @@ class MainActivity : ComponentActivity() {
     private fun launchGame(rom: File) {
         try {
             retroView?.let { lifecycle.removeObserver(it); gameContainer.removeView(it) }
+            val abi = android.os.Build.SUPPORTED_ABIS.firstOrNull { it in setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86") }
+                ?: throw IllegalStateException("Arquitetura Android não suportada neste APK: ${android.os.Build.SUPPORTED_ABIS.joinToString()}")
             val core = File(applicationInfo.nativeLibraryDir, "libgenesis_plus_gx_libretro_android.so")
-            if (!core.exists()) throw IllegalStateException("Núcleo ARM64 não veio no APK")
+            if (!core.isFile || core.length() < 1_000_000) {
+                val installed = File(applicationInfo.nativeLibraryDir).list()?.joinToString() ?: "nenhuma biblioteca nativa extraída"
+                throw IllegalStateException("Core Genesis Plus GX não foi instalado para $abi. Bibliotecas encontradas: $installed")
+            }
             val viewData = GLRetroViewData(this).apply {
                 coreFilePath = core.absolutePath
                 gameFilePath = rom.absolutePath
