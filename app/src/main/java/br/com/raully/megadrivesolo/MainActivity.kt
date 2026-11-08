@@ -1,6 +1,9 @@
 package br.com.raully.megadrivesolo
 
 import androidx.activity.ComponentActivity
+import androidx.core.view.WindowCompat
+import androidx.core.view.WindowInsetsCompat
+import androidx.core.view.WindowInsetsControllerCompat
 import android.content.Intent
 import android.provider.OpenableColumns
 import android.os.Bundle
@@ -44,12 +47,26 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         requestedOrientation = android.content.pm.ActivityInfo.SCREEN_ORIENTATION_LANDSCAPE
+        hideSystemBars()
         setContentView(R.layout.activity_main)
         root = findViewById(R.id.root)
         gameContainer = findViewById(R.id.gamecontainer)
         menu = findViewById(R.id.menu)
         status = findViewById(R.id.status)
         findViewById<Button>(R.id.openrom).setOnClickListener { openRomPicker() }
+    }
+
+    private fun hideSystemBars() {
+        WindowCompat.setDecorFitsSystemWindows(window, false)
+        WindowInsetsControllerCompat(window, window.decorView).apply {
+            hide(WindowInsetsCompat.Type.statusBars() or WindowInsetsCompat.Type.navigationBars())
+            systemBarsBehavior = WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
+        }
+    }
+
+    override fun onWindowFocusChanged(hasFocus: Boolean) {
+        super.onWindowFocusChanged(hasFocus)
+        if (hasFocus) hideSystemBars()
     }
 
     private fun openRomPicker() {
