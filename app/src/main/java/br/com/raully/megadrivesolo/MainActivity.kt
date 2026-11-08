@@ -40,6 +40,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var menu: LinearLayout
     private lateinit var status: TextView
     private var retroView: GLRetroView? = null
+    private val pressedPointers = mutableMapOf<Int, Int>()
+    private var touchDpadX = 0f
+    private var touchDpadY = 0f
     private var switchingGame = false
     private val cheats = mutableListOf<CheatEntry>()
     private data class CheatEntry(val code: String, var enabled: Boolean = true)
@@ -356,6 +359,8 @@ class MainActivity : ComponentActivity() {
         val stick = VirtualJoystickView(this) { x, y ->
             val dpadX = when { x < -0.35f -> -1f; x > 0.35f -> 1f; else -> 0f }
             val dpadY = when { y < -0.35f -> -1f; y > 0.35f -> 1f; else -> 0f }
+            touchDpadX = dpadX
+            touchDpadY = dpadY
             view.sendMotionEvent(GLRetroView.MOTION_SOURCE_DPAD, dpadX, dpadY)
             view.sendMotionEvent(GLRetroView.MOTION_SOURCE_ANALOG_LEFT, x, y)
         }.apply { tag = "touch-controls"; alpha = 0.82f }
@@ -367,12 +372,15 @@ class MainActivity : ComponentActivity() {
 
         val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setPadding(8, 6, 8, 6); alpha = 0.82f; tag = "touch-buttons" }
         root.findViewWithTag<View>("touch-buttons")?.let(root::removeView)
+        // Mega Drive 6-button mapping onto libretro's standard RetroPad inputs.
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        addTouchButton(top, "Y", KeyEvent.KEYCODE_BUTTON_Y, view)
-        addTouchButton(top, "X", KeyEvent.KEYCODE_BUTTON_X, view)
+        addTouchButton(top, "X", KeyEvent.KEYCODE_BUTTON_L1, view)
+        addTouchButton(top, "Y", KeyEvent.KEYCODE_BUTTON_X, view)
+        addTouchButton(top, "Z", KeyEvent.KEYCODE_BUTTON_R1, view)
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        addTouchButton(bottom, "A", KeyEvent.KEYCODE_BUTTON_Y, view)
         addTouchButton(bottom, "B", KeyEvent.KEYCODE_BUTTON_B, view)
-        addTouchButton(bottom, "A", KeyEvent.KEYCODE_BUTTON_A, view)
+        addTouchButton(bottom, "C", KeyEvent.KEYCODE_BUTTON_A, view)
         right.addView(top)
         right.addView(bottom)
         val start = Button(this).apply {
@@ -391,6 +399,29 @@ class MainActivity : ComponentActivity() {
         private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
         private var axisX = 0f
         private var axisY = 0f
+        private var activePointerId = MotionEvent.INVALID_POINTER_ID
+
+        private fun releaseStick() {
+            activePointerId = MotionEvent.INVALID_POINTER_ID
+            axisX = 0f
+            axisY = 0f
+            onAxes(0f, 0f)
+            invalidate()
+        }
+
+        private fun updateStick(x: Float, y: Float) {
+            val cx = width / 2f
+            val cy = height / 2f
+            val radius = minOf(width, height) * 0.43f
+            val dx = (x - cx) / radius
+            val dy = (y - cy) / radius
+            val magnitude = kotlin.math.sqrt(dx * dx + dy * dy)
+            val scale = if (magnitude > 1f) 1f / magnitude else 1f
+            axisX = dx * scale
+            axisY = dy * scale
+            onAxes(axisX, axisY)
+            invalidate()
+        }
 
         override fun onDraw(canvas: android.graphics.Canvas) {
             super.onDraw(canvas)
@@ -414,23 +445,25 @@ class MainActivity : ComponentActivity() {
         }
 
         override fun onTouchEvent(event: MotionEvent): Boolean {
-            val cx = width / 2f
-            val cy = height / 2f
-            val radius = minOf(width, height) * 0.43f
-            if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
-                axisX = 0f; axisY = 0f; onAxes(0f, 0f); invalidate(); return true
-            }
-            if (event.actionMasked == MotionEvent.ACTION_DOWN || event.actionMasked == MotionEvent.ACTION_MOVE) {
-                val dx = (event.x - cx) / radius
-                val dy = (event.y - cy) / radius
-                val magnitude = kotlin.math.sqrt(dx * dx + dy * dy)
-                val scale = if (magnitude > 1f) 1f / magnitude else 1f
-                axisX = dx * scale
-                axisY = dy * scale
-                val dpadX = when { axisX < -0.35f -> -1f; axisX > 0.35f -> 1f; else -> 0f }
-                val dpadY = when { axisY < -0.35f -> -1f; axisY > 0.35f -> 1f; else -> 0f }
-                onAxes(dpadX, dpadY)
-                invalidate()
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                    activePointerId = event.getPointerId(event.actionIndex)
+                    updateStick(event.getX(event.actionIndex), event.getY(event.actionIndex))
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val index = event.findPointerIndex(activePointerId)
+                    if (index >= 0) updateStick(event.getX(index), event.getY(index))
+                }
+                MotionEvent.ACTION_POINTER_UP -> {
+                    if (event.getPointerId(event.actionIndex) == activePointerId) {
+                        val nextIndex = if (event.actionIndex == 0) 1 else 0
+                        if (nextIndex < event.pointerCount) {
+                            activePointerId = event.getPointerId(nextIndex)
+                            updateStick(event.getX(nextIndex), event.getY(nextIndex))
+                        } else releaseStick()
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> releaseStick()
             }
             return true
         }
@@ -445,9 +478,28 @@ class MainActivity : ComponentActivity() {
             setPadding(6, 0, 6, 0)
             contentDescription = "Botão $label"
             setOnTouchListener { _, event ->
-                when (event.actionMasked) {
-                    MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> view.sendKeyEvent(KeyEvent.ACTION_DOWN, keyCode)
-                    MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> view.sendKeyEvent(KeyEvent.ACTION_UP, keyCode)
+                val pressActions = setOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_MOVE)
+                for (index in 0 until event.pointerCount) {
+                    val isInside = event.getX(index) >= 0f && event.getX(index) < width && event.getY(index) >= 0f && event.getY(index) < height
+                    val pointerKey = event.getPointerId(index)
+                    val wasPressed = pressedPointers[pointerKey] == keyCode
+                    val shouldPress = event.actionMasked in pressActions && isInside
+                    if (shouldPress && !wasPressed) {
+                        pressedPointers[pointerKey] = keyCode
+                        view.sendKeyEvent(KeyEvent.ACTION_DOWN, keyCode)
+                    } else if (!shouldPress && wasPressed) {
+                        pressedPointers.remove(pointerKey)
+                        view.sendKeyEvent(KeyEvent.ACTION_UP, keyCode)
+                    }
+                }
+                if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_POINTER_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                    val pointerKey = event.getPointerId(event.actionIndex)
+                    if (pressedPointers.remove(pointerKey) != null) view.sendKeyEvent(KeyEvent.ACTION_UP, keyCode)
+                }
+                if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                    val stillHeld = pressedPointers.filterValues { it == keyCode }.keys.toList()
+                    stillHeld.forEach { pressedPointers.remove(it) }
+                    if (stillHeld.isNotEmpty()) view.sendKeyEvent(KeyEvent.ACTION_UP, keyCode)
                 }
                 true
             }
@@ -459,16 +511,21 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun libretroKey(keyCode: Int): Int? = when (keyCode) {
-        KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_DPAD_CENTER, KeyEvent.KEYCODE_BUTTON_1 -> KeyEvent.KEYCODE_BUTTON_A
-        KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BUTTON_2 -> KeyEvent.KEYCODE_BUTTON_B
-        KeyEvent.KEYCODE_BUTTON_X, KeyEvent.KEYCODE_BUTTON_3 -> KeyEvent.KEYCODE_BUTTON_X
-        KeyEvent.KEYCODE_BUTTON_Y, KeyEvent.KEYCODE_BUTTON_4 -> KeyEvent.KEYCODE_BUTTON_Y
-        KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_5 -> KeyEvent.KEYCODE_BUTTON_L1
-        KeyEvent.KEYCODE_BUTTON_R1, KeyEvent.KEYCODE_BUTTON_6 -> KeyEvent.KEYCODE_BUTTON_R1
+        KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_DPAD_CENTER -> KeyEvent.KEYCODE_BUTTON_A
+        KeyEvent.KEYCODE_BUTTON_B -> KeyEvent.KEYCODE_BUTTON_B
+        KeyEvent.KEYCODE_BUTTON_X -> KeyEvent.KEYCODE_BUTTON_X
+        KeyEvent.KEYCODE_BUTTON_Y -> KeyEvent.KEYCODE_BUTTON_Y
+        KeyEvent.KEYCODE_BUTTON_L1 -> KeyEvent.KEYCODE_BUTTON_L1
+        KeyEvent.KEYCODE_BUTTON_R1 -> KeyEvent.KEYCODE_BUTTON_R1
         KeyEvent.KEYCODE_BUTTON_L2 -> KeyEvent.KEYCODE_BUTTON_L2
         KeyEvent.KEYCODE_BUTTON_R2 -> KeyEvent.KEYCODE_BUTTON_R2
-        KeyEvent.KEYCODE_BUTTON_START, KeyEvent.KEYCODE_BUTTON_8 -> KeyEvent.KEYCODE_BUTTON_START
-        KeyEvent.KEYCODE_BUTTON_SELECT, KeyEvent.KEYCODE_BUTTON_7 -> KeyEvent.KEYCODE_BUTTON_SELECT
+        KeyEvent.KEYCODE_BUTTON_START -> KeyEvent.KEYCODE_BUTTON_START
+        KeyEvent.KEYCODE_BUTTON_SELECT -> KeyEvent.KEYCODE_BUTTON_SELECT
+        KeyEvent.KEYCODE_BUTTON_1, KeyEvent.KEYCODE_BUTTON_5 -> KeyEvent.KEYCODE_BUTTON_B
+        KeyEvent.KEYCODE_BUTTON_2, KeyEvent.KEYCODE_BUTTON_6 -> KeyEvent.KEYCODE_BUTTON_A
+        KeyEvent.KEYCODE_BUTTON_3 -> KeyEvent.KEYCODE_BUTTON_Y
+        KeyEvent.KEYCODE_BUTTON_4 -> KeyEvent.KEYCODE_BUTTON_X
+        KeyEvent.KEYCODE_BUTTON_7, KeyEvent.KEYCODE_BUTTON_8 -> KeyEvent.KEYCODE_BUTTON_START
         KeyEvent.KEYCODE_DPAD_UP, KeyEvent.KEYCODE_DPAD_DOWN, KeyEvent.KEYCODE_DPAD_LEFT, KeyEvent.KEYCODE_DPAD_RIGHT -> keyCode
         else -> null
     }
@@ -490,10 +547,17 @@ class MainActivity : ComponentActivity() {
             val hatY = event.getAxisValue(MotionEvent.AXIS_HAT_Y)
             val leftX = event.getAxisValue(MotionEvent.AXIS_X)
             val leftY = event.getAxisValue(MotionEvent.AXIS_Y)
-            val dpadX = if (kotlin.math.abs(hatX) > 0.2f) hatX else when { leftX < -0.45f -> -1f; leftX > 0.45f -> 1f; else -> 0f }
-            val dpadY = if (kotlin.math.abs(hatY) > 0.2f) hatY else when { leftY < -0.45f -> -1f; leftY > 0.45f -> 1f; else -> 0f }
-            retroView?.sendMotionEvent(GLRetroView.MOTION_SOURCE_DPAD, dpadX, dpadY, 0)
-            retroView?.sendMotionEvent(GLRetroView.MOTION_SOURCE_ANALOG_LEFT, leftX, leftY, 0)
+            val xAlt = event.getAxisValue(MotionEvent.AXIS_Z)
+            val yAlt = event.getAxisValue(MotionEvent.AXIS_RZ)
+            val useHat = kotlin.math.abs(hatX) > 0.2f || kotlin.math.abs(hatY) > 0.2f
+            val chosenX = if (!useHat && kotlin.math.abs(xAlt) > kotlin.math.abs(leftX)) xAlt else leftX
+            val chosenY = if (!useHat && kotlin.math.abs(yAlt) > kotlin.math.abs(leftY)) yAlt else leftY
+            val dpadX = if (kotlin.math.abs(hatX) > 0.2f) hatX else when { chosenX < -0.45f -> -1f; chosenX > 0.45f -> 1f; else -> 0f }
+            val dpadY = if (kotlin.math.abs(hatY) > 0.2f) hatY else when { chosenY < -0.45f -> -1f; chosenY > 0.45f -> 1f; else -> 0f }
+            val mergedX = if (kotlin.math.abs(touchDpadX) > 0.2f) touchDpadX else dpadX
+            val mergedY = if (kotlin.math.abs(touchDpadY) > 0.2f) touchDpadY else dpadY
+            retroView?.sendMotionEvent(GLRetroView.MOTION_SOURCE_DPAD, mergedX, mergedY, 0)
+            retroView?.sendMotionEvent(GLRetroView.MOTION_SOURCE_ANALOG_LEFT, if (kotlin.math.abs(leftX) > 0.2f) leftX else 0f, if (kotlin.math.abs(leftY) > 0.2f) leftY else 0f, 0)
             retroView?.sendMotionEvent(GLRetroView.MOTION_SOURCE_ANALOG_RIGHT, event.getAxisValue(MotionEvent.AXIS_Z), event.getAxisValue(MotionEvent.AXIS_RZ), 0)
             return true
         }
