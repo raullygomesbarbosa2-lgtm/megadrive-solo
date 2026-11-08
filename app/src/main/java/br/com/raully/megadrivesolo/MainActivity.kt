@@ -406,13 +406,40 @@ class MainActivity : ComponentActivity() {
 
     private fun showTouchControls(view: GLRetroView) {
         root.findViewWithTag<View>("touch-controls")?.let(root::removeView)
+        var heldDpadX = 0
+        var heldDpadY = 0
+        val directionKeys = mapOf(
+            "left" to KeyEvent.KEYCODE_DPAD_LEFT,
+            "right" to KeyEvent.KEYCODE_DPAD_RIGHT,
+            "up" to KeyEvent.KEYCODE_DPAD_UP,
+            "down" to KeyEvent.KEYCODE_DPAD_DOWN
+        )
+        fun axisDirection(value: Float, held: Int): Int {
+            if (kotlin.math.abs(value) >= 0.35f) return if (value < 0f) -1 else 1
+            if (held != 0 && kotlin.math.abs(value) >= 0.22f) return held
+            return 0
+        }
         val stick = VirtualJoystickView(this) { x, y ->
-            // Keep the circular lever, but report clean digital directions to fighting games.
-            val dx = when { x < -0.38f -> -1f; x > 0.38f -> 1f; else -> 0f }
-            val dy = when { y < -0.38f -> -1f; y > 0.38f -> 1f; else -> 0f }
-            view.sendMotionEvent(GLRetroView.MOTION_SOURCE_DPAD, dx, dy, 0)
+            // Send real, held D-pad button states, not analog axes. This is more
+            // reliable for character grids that poll digital directions.
+            val nextX = if (x == 0f && y == 0f) 0 else axisDirection(x, heldDpadX)
+            val nextY = if (x == 0f && y == 0f) 0 else axisDirection(y, heldDpadY)
+            val oldKeys = mutableSetOf<Int>()
+            val newKeys = mutableSetOf<Int>()
+            if (heldDpadX < 0) oldKeys += directionKeys.getValue("left")
+            if (heldDpadX > 0) oldKeys += directionKeys.getValue("right")
+            if (heldDpadY < 0) oldKeys += directionKeys.getValue("up")
+            if (heldDpadY > 0) oldKeys += directionKeys.getValue("down")
+            if (nextX < 0) newKeys += directionKeys.getValue("left")
+            if (nextX > 0) newKeys += directionKeys.getValue("right")
+            if (nextY < 0) newKeys += directionKeys.getValue("up")
+            if (nextY > 0) newKeys += directionKeys.getValue("down")
+            (oldKeys - newKeys).forEach { view.sendKeyEvent(KeyEvent.ACTION_UP, it) }
+            (newKeys - oldKeys).forEach { view.sendKeyEvent(KeyEvent.ACTION_DOWN, it) }
+            heldDpadX = nextX
+            heldDpadY = nextY
         }.apply { tag = "touch-controls"; alpha = 0.9f }
-        val stickSize = (172 * resources.displayMetrics.density).toInt()
+              val stickSize = (172 * resources.displayMetrics.density).toInt()
         val stickParams = FrameLayout.LayoutParams(stickSize, stickSize, Gravity.BOTTOM or Gravity.START)
         stickParams.leftMargin = (14 * resources.displayMetrics.density).toInt()
         stickParams.bottomMargin = (8 * resources.displayMetrics.density).toInt()
