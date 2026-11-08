@@ -29,8 +29,8 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.1.0
-          name: Mega Drive Solo v1.1.0
+          tag_name: v1.2.0
+          name: Mega Drive Solo v1.2.0
           prerelease: true
-          body: 'Ícone adaptável do app baseado na imagem enviada. Compilação atualizada para target API 36. A classificação etária e aprovação dependem de preenchimento do Play Console.'
+          body: 'Modo imersivo: oculta barra de status e navegação Android durante o jogo e restaura ao recuperar o foco, usando gesto de borda para mostrar temporariamente.'
           files: app/build/outputs/apk/debug/app-debug.apk
