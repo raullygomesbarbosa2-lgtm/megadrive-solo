@@ -9,9 +9,14 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
+import android.widget.EditText
 import android.widget.FrameLayout
+import android.widget.ScrollView
+import android.widget.CheckBox
+import androidx.appcompat.app.AlertDialog
 import android.widget.LinearLayout
 import android.widget.TextView
+import android.widget.Toast
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.flowWithLifecycle
 import androidx.lifecycle.lifecycleScope
@@ -32,6 +37,9 @@ class MainActivity : ComponentActivity() {
     private lateinit var menu: LinearLayout
     private lateinit var status: TextView
     private var retroView: GLRetroView? = null
+    private var switchingGame = false
+    private val cheats = mutableListOf<CheatEntry>()
+    private data class CheatEntry(val code: String, var enabled: Boolean = true)
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -56,9 +64,14 @@ class MainActivity : ComponentActivity() {
     @Deprecated("Deprecated by Android but retained for compatibility with the minimum API")
     override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
         super.onActivityResult(requestCode, resultCode, data)
-        if (requestCode != pickRom || resultCode != RESULT_OK) return
-        val uri = data?.data ?: return
+        if (requestCode != pickRom || resultCode != RESULT_OK) {
+            if (requestCode == pickRom && switchingGame) resumeCurrentGame()
+            return
+        }
+        val uri = data?.data ?: run { if (switchingGame) resumeCurrentGame(); return }
+        val wasSwitchingGame = switchingGame
         try {
+            switchingGame = false
             val displayName = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) cursor.getString(0) else null
             } ?: "jogo.bin"
@@ -79,8 +92,10 @@ class MainActivity : ComponentActivity() {
                 }
             }
             if (rom.length() < 8 * 1024) throw IllegalArgumentException("Depois da extração, achei só ${rom.length()} bytes. Uma ROM normal de Mega Drive costuma ser bem maior; o download parece incompleto ou o ZIP/7Z/RAR não é o jogo.")
+            if (wasSwitchingGame) cheats.clear()
             launchGame(rom)
         } catch (e: Exception) {
+            if (wasSwitchingGame) resumeCurrentGame()
             menu.visibility = View.VISIBLE
             status.text = "Erro ao abrir a ROM: ${e.message ?: "arquivo inválido"}"
         }
@@ -157,7 +172,16 @@ class MainActivity : ComponentActivity() {
 
     private fun launchGame(rom: File) {
         try {
-            retroView?.let { lifecycle.removeObserver(it); gameContainer.removeView(it) }
+            retroView?.let { old ->
+                lifecycle.removeObserver(old)
+                runCatching { old.onPause() }
+                runCatching { old.onDestroy() }
+                gameContainer.removeView(old)
+            }
+            retroView = null
+            root.findViewWithTag<View>("touch-controls")?.let(root::removeView)
+            root.findViewWithTag<View>("touch-buttons")?.let(root::removeView)
+            root.findViewWithTag<View>("game-menu")?.let(root::removeView)
             val abi = android.os.Build.SUPPORTED_ABIS.firstOrNull { it in setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86") }
                 ?: throw IllegalStateException("Arquitetura Android não suportada neste APK: ${android.os.Build.SUPPORTED_ABIS.joinToString()}")
             val core = File(applicationInfo.nativeLibraryDir, "libgenesis_plus_gx_libretro_android.so")
@@ -177,6 +201,7 @@ class MainActivity : ComponentActivity() {
             lifecycle.addObserver(view)
             gameContainer.addView(view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER))
             showTouchControls(view)
+            showGameMenuButton(view)
             menu.visibility = View.GONE
             lifecycleScope.launch {
                 view.getGLRetroErrors().flowWithLifecycle(lifecycle, Lifecycle.State.RESUMED).collect { error ->
@@ -190,6 +215,123 @@ class MainActivity : ComponentActivity() {
             menu.visibility = View.VISIBLE
             status.text = "Falha ao iniciar: ${e.message ?: "erro inesperado"}"
         }
+    }
+
+    private fun showGameMenuButton(view: GLRetroView) {
+        val button = Button(this).apply {
+            text = "☰"
+            textSize = 22f
+            contentDescription = "Menu do jogo"
+            setOnClickListener { showGameMenu(view) }
+        }
+        val params = FrameLayout.LayoutParams((56 * resources.displayMetrics.density).toInt(), (52 * resources.displayMetrics.density).toInt(), Gravity.TOP or Gravity.END)
+        params.setMargins(0, (12 * resources.displayMetrics.density).toInt(), (12 * resources.displayMetrics.density).toInt(), 0)
+        button.tag = "game-menu"
+        root.addView(button, params)
+    }
+
+    private fun showGameMenu(view: GLRetroView) {
+        val items = arrayOf("Continuar jogo", "Trocar jogo/ROM", "Cheats")
+        AlertDialog.Builder(this)
+            .setTitle("Mega Drive Solo")
+            .setItems(items) { _, which ->
+                when (which) {
+                    0 -> Unit
+                    1 -> pauseAndChooseRom()
+                    2 -> showCheatsDialog(view)
+                }
+            }
+            .setNegativeButton("Fechar", null)
+            .show()
+    }
+
+    private fun pauseAndChooseRom() {
+        switchingGame = true
+        openRomPicker()
+    }
+
+    private fun resumeCurrentGame() {
+        // Android pauses/resumes the native GL view around the document picker via Activity lifecycle.
+        switchingGame = false
+    }
+
+    private fun showCheatsDialog(view: GLRetroView) {
+        val content = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            setPadding((20 * resources.displayMetrics.density).toInt(), (8 * resources.displayMetrics.density).toInt(), (20 * resources.displayMetrics.density).toInt(), 0)
+        }
+        val codeInput = EditText(this).apply {
+            hint = "GG: XXXX-XXXX  |  PAR: XXXXXX:XXXX"
+            singleLine = true
+            textSize = 15f
+            inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
+        }
+        content.addView(TextView(this).apply {
+            text = "Mega Drive: Game Genie XXXX-XXXX ou Pro Action Replay XXXXXX:XXXX. Digite o código correspondente ao jogo aberto."
+            textSize = 12f
+            setPadding(0, 0, 0, (8 * resources.displayMetrics.density).toInt())
+        })
+        content.addView(codeInput, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT))
+        if (cheats.isEmpty()) {
+            content.addView(TextView(this).apply {
+                text = "Digite um código compatível com Genesis Plus GX. Compatibilidade varia conforme o formato do código."
+                textSize = 13f
+                setPadding(0, (8 * resources.displayMetrics.density).toInt(), 0, (8 * resources.displayMetrics.density).toInt())
+            })
+        } else {
+            val scroll = ScrollView(this)
+            val list = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL }
+            cheats.forEachIndexed { index, cheat ->
+                val row = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER_VERTICAL }
+                val toggle = CheckBox(this).apply {
+                    text = cheat.code
+                    isChecked = cheat.enabled
+                    setOnCheckedChangeListener { _, checked ->
+                        cheat.enabled = checked
+                        view.setCheat(index, checked, cheat.code)
+                    }
+                }
+                row.addView(toggle, LinearLayout.LayoutParams(0, LinearLayout.LayoutParams.WRAP_CONTENT, 1f))
+                val remove = Button(this).apply {
+                    text = "Remover"
+                    setOnClickListener {
+                        cheats.forEachIndexed { oldIndex, oldCheat -> view.setCheat(oldIndex, false, oldCheat.code) }
+                        cheats.removeAt(index)
+                        cheats.forEachIndexed { newIndex, newCheat -> view.setCheat(newIndex, newCheat.enabled, newCheat.code) }
+                        showCheatsDialog(view)
+                    }
+                }
+                row.addView(remove)
+                list.addView(row)
+            }
+            scroll.addView(list)
+            content.addView(scroll, LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (180 * resources.displayMetrics.density).toInt()))
+        }
+        AlertDialog.Builder(this)
+            .setTitle("Cheats")
+            .setView(content)
+            .setPositiveButton("Adicionar") { _, _ ->
+                val code = codeInput.text.toString().trim().replace(" ", "").uppercase()
+                if (code.isEmpty()) return@setPositiveButton
+                val valid = code.split('+').all { part ->
+                    Regex("^[A-HJ-NP-Z0-9]{4}-[A-HJ-NP-Z0-9]{4}$", RegexOption.IGNORE_CASE).matches(part) ||
+                    Regex("^[0-9A-F]{6}:[0-9A-F]{4}$", RegexOption.IGNORE_CASE).matches(part)
+                }
+                if (!valid) {
+                    Toast.makeText(this, "Formato inválido. Use Game Genie XXXX-XXXX ou PAR XXXXXX:XXXX.", Toast.LENGTH_LONG).show()
+                    showCheatsDialog(view)
+                } else {
+                    val index = cheats.size
+                    cheats.add(CheatEntry(code))
+                    runCatching { view.setCheat(index, true, code) }.onFailure {
+                        cheats.removeAt(index)
+                        Toast.makeText(this, "O core recusou esse código: ${it.message ?: "formato incompatível"}", Toast.LENGTH_LONG).show()
+                    }
+                }
+            }
+            .setNeutralButton("Voltar", null)
+            .setNegativeButton("Menu do jogo") { _, _ -> showGameMenu(view) }
+            .show()
     }
 
     private fun showTouchControls(view: GLRetroView) {
@@ -209,16 +351,18 @@ class MainActivity : ComponentActivity() {
         val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setPadding(8, 6, 8, 6); alpha = 0.82f; tag = "touch-buttons" }
         root.findViewWithTag<View>("touch-buttons")?.let(root::removeView)
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        addTouchButton(top, "X", KeyEvent.KEYCODE_BUTTON_X, view)
         addTouchButton(top, "Y", KeyEvent.KEYCODE_BUTTON_Y, view)
-        addTouchButton(top, "Z", KeyEvent.KEYCODE_BUTTON_R1, view)
+        addTouchButton(top, "X", KeyEvent.KEYCODE_BUTTON_X, view)
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        addTouchButton(bottom, "A", KeyEvent.KEYCODE_BUTTON_A, view)
         addTouchButton(bottom, "B", KeyEvent.KEYCODE_BUTTON_B, view)
-        addTouchButton(bottom, "C", KeyEvent.KEYCODE_BUTTON_L1, view)
+        addTouchButton(bottom, "A", KeyEvent.KEYCODE_BUTTON_A, view)
         right.addView(top)
         right.addView(bottom)
-        addTouchButton(right, "START", KeyEvent.KEYCODE_BUTTON_START, view)
+        val start = Button(this).apply {
+            text = "START"
+            setOnClickListener { view.sendKeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_START); postDelayed({ view.sendKeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_START) }, 90L) }
+        }
+        right.addView(start, LinearLayout.LayoutParams((112 * resources.displayMetrics.density).toInt(), (42 * resources.displayMetrics.density).toInt()))
         val rightParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END)
         rightParams.rightMargin = (12 * resources.displayMetrics.density).toInt()
         rightParams.bottomMargin = (16 * resources.displayMetrics.density).toInt()
@@ -282,7 +426,7 @@ class MainActivity : ComponentActivity() {
             minWidth = 48
             minHeight = 48
             setPadding(6, 0, 6, 0)
-            contentDescription = label
+            contentDescription = "Botão $label"
             setOnTouchListener { _, event ->
                 when (event.actionMasked) {
                     MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> view.sendKeyEvent(KeyEvent.ACTION_DOWN, keyCode)
@@ -291,8 +435,9 @@ class MainActivity : ComponentActivity() {
                 true
             }
         }
-        val params = LinearLayout.LayoutParams((56 * resources.displayMetrics.density).toInt(), (54 * resources.displayMetrics.density).toInt())
-        params.setMargins(2, 0, 2, 0)
+        val size = (58 * resources.displayMetrics.density).toInt()
+        val params = LinearLayout.LayoutParams(size, size)
+        params.setMargins((3 * resources.displayMetrics.density).toInt(), (3 * resources.displayMetrics.density).toInt(), (3 * resources.displayMetrics.density).toInt(), (3 * resources.displayMetrics.density).toInt())
         group.addView(button, params)
     }
 
