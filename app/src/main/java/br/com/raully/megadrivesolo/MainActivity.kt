@@ -10,6 +10,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.widget.Button
+import android.widget.Toast
 import android.widget.FrameLayout
 import android.widget.LinearLayout
 import android.widget.TextView
@@ -21,6 +22,9 @@ import com.swordfish.libretrodroid.GLRetroViewData
 import com.swordfish.libretrodroid.ShaderConfig
 import kotlinx.coroutines.launch
 import java.io.File
+import java.io.FileOutputStream
+import java.util.zip.ZipFile
+import org.apache.commons.compress.archivers.sevenz.SevenZFile
 
 class MainActivity : ComponentActivity() {
     private val pickRom = 61
@@ -59,17 +63,65 @@ class MainActivity : ComponentActivity() {
             val displayName = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
                 if (cursor.moveToFirst()) cursor.getString(0) else null
             } ?: "jogo.bin"
-            val suffix = displayName.substringAfterLast('.', "bin").lowercase()
-            if (suffix !in setOf("bin", "gen", "md", "smd", "zip")) throw IllegalArgumentException("Formato .$suffix não reconhecido")
-            val rom = File(filesDir, "game_${System.currentTimeMillis()}.$suffix")
-            contentResolver.openInputStream(uri)?.use { input -> rom.outputStream().use { output -> input.copyTo(output) } }
+            val downloaded = File(cacheDir, "download_${System.currentTimeMillis()}_${displayName.replace(Regex("[^A-Za-z0-9._-]"), "_")}")
+            contentResolver.openInputStream(uri)?.use { input -> downloaded.outputStream().use { output -> input.copyTo(output) } }
                 ?: throw IllegalStateException("Não consegui ler o arquivo escolhido")
-            if (rom.length() < 512) throw IllegalArgumentException("Arquivo vazio ou pequeno demais para ser uma ROM")
+            if (downloaded.length() < 512) throw IllegalArgumentException("O arquivo baixado está vazio ou incompleto")
+            val rom = when {
+                displayName.endsWith(".zip", true) -> extractZip(downloaded)
+                displayName.endsWith(".7z", true) -> extract7z(downloaded)
+                else -> {
+                    val ext = displayName.substringAfterLast('.', "bin").lowercase()
+                    if (ext !in supportedRomExtensions) throw IllegalArgumentException("Formato .$ext não suportado. Escolha uma ROM .bin, .gen, .md, .smd ou um arquivo .zip/.7z com a ROM dentro.")
+                    File(filesDir, "game_${System.currentTimeMillis()}.$ext").also { downloaded.copyTo(it, overwrite = true) }
+                }
+            }
+            if (rom.length() < 512) throw IllegalArgumentException("A ROM extraída está vazia ou incompleta")
             launchGame(rom)
         } catch (e: Exception) {
             menu.visibility = View.VISIBLE
             status.text = "Erro ao abrir a ROM: ${e.message ?: "arquivo inválido"}"
         }
+    }
+
+    private val supportedRomExtensions = setOf("bin", "gen", "md", "smd")
+
+    private fun extractedRomFile(entryName: String): File {
+        val ext = entryName.substringAfterLast('.', "bin").lowercase()
+        if (ext !in supportedRomExtensions) throw IllegalArgumentException("O arquivo compactado não contém ROM .bin, .gen, .md ou .smd.")
+        return File(filesDir, "game_${System.currentTimeMillis()}.$ext")
+    }
+
+    private fun extractZip(archive: File): File {
+        ZipFile(archive).use { zip ->
+            val entry = zip.entries().asSequence()
+                .filter { !it.isDirectory && it.name.substringAfterLast('.', "").lowercase() in supportedRomExtensions }
+                .firstOrNull() ?: throw IllegalArgumentException("Não encontrei uma ROM .bin, .gen, .md ou .smd dentro do ZIP.")
+            val rom = extractedRomFile(entry.name)
+            zip.getInputStream(entry).use { input -> rom.outputStream().use { output -> input.copyTo(output) } }
+            return rom
+        }
+    }
+
+    private fun extract7z(archive: File): File {
+        SevenZFile(archive).use { seven ->
+            while (true) {
+                val entry = seven.nextEntry ?: break
+                if (!entry.isDirectory && entry.name.substringAfterLast('.', "").lowercase() in supportedRomExtensions) {
+                    val rom = extractedRomFile(entry.name)
+                    FileOutputStream(rom).use { output ->
+                        val buffer = ByteArray(32 * 1024)
+                        while (true) {
+                            val count = seven.read(buffer)
+                            if (count <= 0) break
+                            output.write(buffer, 0, count)
+                        }
+                    }
+                    return rom
+                }
+            }
+        }
+        throw IllegalArgumentException("Não encontrei uma ROM .bin, .gen, .md ou .smd dentro do 7Z.")
     }
 
     private fun launchGame(rom: File) {
