@@ -3,6 +3,7 @@ package br.com.raully.megadrivesolo
 import androidx.activity.ComponentActivity
 import android.content.Intent
 import android.net.Uri
+import android.provider.OpenableColumns
 import android.os.Bundle
 import android.view.Gravity
 import android.view.KeyEvent
@@ -55,9 +56,15 @@ class MainActivity : ComponentActivity() {
         if (requestCode != pickRom || resultCode != RESULT_OK) return
         val uri = data?.data ?: return
         try {
-            val rom = File(filesDir, "game_" + System.currentTimeMillis() + ".rom")
-            contentResolver.openInputStream(uri)?.use { input -> rom.outputStream().use(input::copyTo) }
+            val displayName = contentResolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
+                if (cursor.moveToFirst()) cursor.getString(0) else null
+            } ?: "jogo.bin"
+            val suffix = displayName.substringAfterLast('.', "bin").lowercase()
+            if (suffix !in setOf("bin", "gen", "md", "smd", "zip")) throw IllegalArgumentException("Formato .$suffix não reconhecido")
+            val rom = File(filesDir, "game_${System.currentTimeMillis()}.$suffix")
+            contentResolver.openInputStream(uri)?.use { input -> rom.outputStream().use { output -> input.copyTo(output) } }
                 ?: throw IllegalStateException("Não consegui ler o arquivo escolhido")
+            if (rom.length() < 512) throw IllegalArgumentException("Arquivo vazio ou pequeno demais para ser uma ROM")
             launchGame(rom)
         } catch (e: Exception) {
             menu.visibility = View.VISIBLE
@@ -81,6 +88,7 @@ class MainActivity : ComponentActivity() {
             retroView = view
             lifecycle.addObserver(view)
             gameContainer.addView(view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER))
+            showTouchControls(view)
             menu.visibility = View.GONE
             lifecycleScope.launch {
                 view.getGLRetroErrors().flowWithLifecycle(lifecycle, Lifecycle.State.RESUMED).collect { error ->
@@ -94,6 +102,47 @@ class MainActivity : ComponentActivity() {
             menu.visibility = View.VISIBLE
             status.text = "Falha ao iniciar: ${e.message ?: "erro inesperado"}"
         }
+    }
+
+    private fun showTouchControls(view: GLRetroView) {
+        val left = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(12, 8, 12, 8); alpha = 0.78f }
+        addTouchButton(left, "◀", KeyEvent.KEYCODE_DPAD_LEFT, view)
+        addTouchButton(left, "▲", KeyEvent.KEYCODE_DPAD_UP, view)
+        addTouchButton(left, "▼", KeyEvent.KEYCODE_DPAD_DOWN, view)
+        addTouchButton(left, "▶", KeyEvent.KEYCODE_DPAD_RIGHT, view)
+        val leftParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.START)
+        leftParams.bottomMargin = 12
+        root.addView(left, leftParams)
+
+        val right = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER; setPadding(12, 8, 12, 8); alpha = 0.82f }
+        addTouchButton(right, "A", KeyEvent.KEYCODE_BUTTON_A, view)
+        addTouchButton(right, "B", KeyEvent.KEYCODE_BUTTON_B, view)
+        addTouchButton(right, "C", KeyEvent.KEYCODE_BUTTON_X, view)
+        addTouchButton(right, "START", KeyEvent.KEYCODE_BUTTON_START, view)
+        val rightParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END)
+        rightParams.bottomMargin = 12
+        root.addView(right, rightParams)
+    }
+
+    private fun addTouchButton(group: LinearLayout, label: String, keyCode: Int, view: GLRetroView) {
+        val button = Button(this).apply {
+            text = label
+            isAllCaps = false
+            minWidth = 48
+            minHeight = 48
+            setPadding(6, 0, 6, 0)
+            contentDescription = label
+            setOnTouchListener { _, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> view.sendKeyEvent(KeyEvent.ACTION_DOWN, keyCode)
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> view.sendKeyEvent(KeyEvent.ACTION_UP, keyCode)
+                }
+                true
+            }
+        }
+        val params = LinearLayout.LayoutParams(56, 56)
+        params.setMargins(3, 0, 3, 0)
+        group.addView(button, params)
     }
 
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
