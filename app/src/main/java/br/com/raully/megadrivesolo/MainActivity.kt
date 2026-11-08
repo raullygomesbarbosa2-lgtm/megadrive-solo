@@ -262,7 +262,7 @@ class MainActivity : ComponentActivity() {
         }
         val codeInput = EditText(this).apply {
             hint = "GG: XXXX-XXXX  |  PAR: XXXXXX:XXXX"
-            singleLine = true
+            setSingleLine(true)
             textSize = 15f
             inputType = android.text.InputType.TYPE_CLASS_TEXT or android.text.InputType.TYPE_TEXT_FLAG_CAP_CHARACTERS
         }
