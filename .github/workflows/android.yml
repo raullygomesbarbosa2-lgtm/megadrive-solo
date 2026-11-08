@@ -29,8 +29,8 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.2.0
-          name: Mega Drive Solo v0.2.0 (nativo)
+          tag_name: v0.3.0
+          name: Mega Drive Solo v0.3.0 (nativo)
           prerelease: true
           body: 'APK Android nativo (OpenGL/LibretroDroid + Genesis Plus GX ARM64). ROMs não incluídas. Teste em dispositivo físico ainda necessário.'
           files: app/build/outputs/apk/debug/app-debug.apk
