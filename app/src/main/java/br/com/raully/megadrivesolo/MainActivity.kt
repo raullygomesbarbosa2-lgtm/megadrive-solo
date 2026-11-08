@@ -408,36 +408,53 @@ class MainActivity : ComponentActivity() {
         root.findViewWithTag<View>("touch-controls")?.let(root::removeView)
         var heldDpadX = 0
         var heldDpadY = 0
-        val directionKeys = mapOf(
-            "left" to KeyEvent.KEYCODE_DPAD_LEFT,
-            "right" to KeyEvent.KEYCODE_DPAD_RIGHT,
-            "up" to KeyEvent.KEYCODE_DPAD_UP,
-            "down" to KeyEvent.KEYCODE_DPAD_DOWN
-        )
-        fun axisDirection(value: Float, held: Int): Int {
-            if (kotlin.math.abs(value) >= 0.35f) return if (value < 0f) -1 else 1
-            if (held != 0 && kotlin.math.abs(value) >= 0.22f) return held
-            return 0
+        val heldDpadKeys = linkedSetOf<Int>()
+        val repeatHandler = android.os.Handler(mainLooper)
+        var pendingRepress: Runnable? = null
+        lateinit var repeatDirection: Runnable
+        repeatDirection = Runnable {
+            if (heldDpadKeys.isNotEmpty()) {
+                heldDpadKeys.toList().forEach { view.sendKeyEvent(KeyEvent.ACTION_UP, it) }
+                pendingRepress = Runnable {
+                    if (heldDpadKeys.isNotEmpty()) {
+                        heldDpadKeys.toList().forEach { view.sendKeyEvent(KeyEvent.ACTION_DOWN, it) }
+                        repeatHandler.postDelayed(repeatDirection, 145L)
+                    }
+                }
+                repeatHandler.postDelayed(pendingRepress!!, 35L)
+            }
         }
-        val stick = VirtualJoystickView(this) { x, y ->
-            // Send real, held D-pad button states, not analog axes. This is more
-            // reliable for character grids that poll digital directions.
-            val nextX = if (x == 0f && y == 0f) 0 else axisDirection(x, heldDpadX)
-            val nextY = if (x == 0f && y == 0f) 0 else axisDirection(y, heldDpadY)
-            val oldKeys = mutableSetOf<Int>()
-            val newKeys = mutableSetOf<Int>()
-            if (heldDpadX < 0) oldKeys += directionKeys.getValue("left")
-            if (heldDpadX > 0) oldKeys += directionKeys.getValue("right")
-            if (heldDpadY < 0) oldKeys += directionKeys.getValue("up")
-            if (heldDpadY > 0) oldKeys += directionKeys.getValue("down")
-            if (nextX < 0) newKeys += directionKeys.getValue("left")
-            if (nextX > 0) newKeys += directionKeys.getValue("right")
-            if (nextY < 0) newKeys += directionKeys.getValue("up")
-            if (nextY > 0) newKeys += directionKeys.getValue("down")
-            (oldKeys - newKeys).forEach { view.sendKeyEvent(KeyEvent.ACTION_UP, it) }
-            (newKeys - oldKeys).forEach { view.sendKeyEvent(KeyEvent.ACTION_DOWN, it) }
+        fun updateDirections(nextX: Int, nextY: Int) {
+            val nextKeys = linkedSetOf<Int>()
+            if (nextX < 0) nextKeys += KeyEvent.KEYCODE_DPAD_LEFT
+            if (nextX > 0) nextKeys += KeyEvent.KEYCODE_DPAD_RIGHT
+            if (nextY < 0) nextKeys += KeyEvent.KEYCODE_DPAD_UP
+            if (nextY > 0) nextKeys += KeyEvent.KEYCODE_DPAD_DOWN
+            val changed = nextKeys != heldDpadKeys
+            (heldDpadKeys - nextKeys).forEach { view.sendKeyEvent(KeyEvent.ACTION_UP, it) }
+            (nextKeys - heldDpadKeys).forEach { view.sendKeyEvent(KeyEvent.ACTION_DOWN, it) }
+            heldDpadKeys.clear()
+            heldDpadKeys.addAll(nextKeys)
             heldDpadX = nextX
             heldDpadY = nextY
+            if (changed) {
+                repeatHandler.removeCallbacks(repeatDirection)
+                pendingRepress?.let(repeatHandler::removeCallbacks)
+                pendingRepress = null
+                if (heldDpadKeys.isNotEmpty()) repeatHandler.postDelayed(repeatDirection, 420L)
+            }
+        }
+        val stick = VirtualJoystickView(this) { x, y ->
+            // Character grids often advance on a fresh digital key press, not
+            // on a continuously-held axis. Repeat a held touch direction like a key.
+            fun axisDirection(value: Float, held: Int): Int {
+                if (kotlin.math.abs(value) >= 0.35f) return if (value < 0f) -1 else 1
+                if (held != 0 && kotlin.math.abs(value) >= 0.22f) return held
+                return 0
+            }
+            val nextX = if (x == 0f && y == 0f) 0 else axisDirection(x, heldDpadX)
+            val nextY = if (x == 0f && y == 0f) 0 else axisDirection(y, heldDpadY)
+            updateDirections(nextX, nextY)
         }.apply { tag = "touch-controls"; alpha = 0.9f }
               val stickSize = (172 * resources.displayMetrics.density).toInt()
         val stickParams = FrameLayout.LayoutParams(stickSize, stickSize, Gravity.BOTTOM or Gravity.START)
