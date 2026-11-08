@@ -29,8 +29,8 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v0.8.0
-          name: Mega Drive Solo v0.8.0 (nativo)
+          tag_name: v1.0.0
+          name: Mega Drive Solo v1.0.0 (nativo)
           prerelease: true
-          body: 'Controles: joystick analógico touch, botões Mega Drive A/B/C/X/Y/Z/Start e mapeamento de gamepads Bluetooth/USB Android (D-pad, sticks e botões). APK Android nativo, sem WebView.'
+          body: 'Menu durante o jogo com Continuar, Trocar ROM e Cheats. Joystick virtual e botões touch A/B/X/Y. Códigos Game Genie XXXX-XXXX e Pro Action Replay XXXXXX:XXXX para Genesis Plus GX. Android nativo, sem WebView.'
           files: app/build/outputs/apk/debug/app-debug.apk
