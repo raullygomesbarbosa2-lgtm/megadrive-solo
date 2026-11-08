@@ -29,8 +29,8 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.5.0
-          name: Mega Drive Solo v1.5.0
+          tag_name: v1.7.0
+          name: Mega Drive Solo v1.7.0
           prerelease: true
-          body: 'Layout compacto com seis botões da ordem de controle do Mega Drive e botão de especial configurável. Direcional virtual corrigido para não duplicar entradas; core em modo MD 6-button.'
+          body: 'Atualização de controles: direcional em cruz digital para navegação em seleção de personagens, layout de seis botões A/B/C/X/Y/Z e ativação explícita do MD 6-button do Genesis Plus GX.'
           files: app/build/outputs/apk/debug/app-debug.apk
