@@ -41,8 +41,6 @@ class MainActivity : ComponentActivity() {
     private lateinit var status: TextView
     private var retroView: GLRetroView? = null
     private val pressedPointers = mutableMapOf<Int, Int>()
-    private var touchDpadX = 0f
-    private var touchDpadY = 0f
     private var switchingGame = false
     private val cheats = mutableListOf<CheatEntry>()
     private val specialButtonLabels = listOf("A", "B", "C", "X", "Y", "Z")
@@ -228,10 +226,12 @@ class MainActivity : ComponentActivity() {
             showGameMenuButton(view)
             menu.visibility = View.GONE
             lifecycleScope.launch {
+                var sixButtonSet = false
                 view.getGLRetroEvents().flowWithLifecycle(lifecycle, Lifecycle.State.RESUMED).collect { event ->
-                    if (event == GLRetroView.GLRetroEvents.SurfaceCreated) {
-                        // Libretro RETRO_DEVICE_JOYPAD subclass 1 = Mega Drive 6-button pad.
-                        view.setControllerType(0, 0x101)
+                    if (!sixButtonSet && (event == GLRetroView.GLRetroEvents.SurfaceCreated || event == GLRetroView.GLRetroEvents.FrameRendered)) {
+                        // Genesis Plus GX requests RETRO_DEVICE_JOYPAD subclass 1 for a six-button pad.
+                        runCatching { view.setControllerType(0, (2 shl 8) or 1) }
+                        sixButtonSet = true
                     }
                 }
             }
@@ -406,117 +406,58 @@ class MainActivity : ComponentActivity() {
 
     private fun showTouchControls(view: GLRetroView) {
         root.findViewWithTag<View>("touch-controls")?.let(root::removeView)
-        val stick = VirtualJoystickView(this) { x, y ->
-            val dpadX = when { x < -0.55f -> -1f; x > 0.55f -> 1f; else -> 0f }
-            val dpadY = when { y < -0.55f -> -1f; y > 0.55f -> 1f; else -> 0f }
-            touchDpadX = dpadX
-            touchDpadY = dpadY
-            // Digital D-pad only: sending both D-pad and analog here caused fighting games
-            // to see duplicate/competing directions during character selection.
-            view.sendMotionEvent(GLRetroView.MOTION_SOURCE_DPAD, dpadX, dpadY)
-        }.apply { tag = "touch-controls"; alpha = 0.82f }
-        val stickSize = (168 * resources.displayMetrics.density).toInt()
-        val stickParams = FrameLayout.LayoutParams(stickSize, stickSize, Gravity.BOTTOM or Gravity.START)
-        stickParams.leftMargin = (18 * resources.displayMetrics.density).toInt()
-        stickParams.bottomMargin = (16 * resources.displayMetrics.density).toInt()
-        root.addView(stick, stickParams)
-
-        val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setPadding(8, 6, 8, 6); alpha = 0.82f; tag = "touch-buttons" }
-        root.findViewWithTag<View>("touch-buttons")?.let(root::removeView)
-        // Compact 3x2 Sega six-button layout. Make each button fit in the right-side safe area.
-        val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        specialButtonLabels.forEachIndexed { index, label ->
-            val row = if (index < 3) top else bottom
-            addTouchButton(row, label, specialButtonKeys[index], view, compact = true)
+        val dpad = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            alpha = 0.9f
+            tag = "touch-controls"
         }
-        right.addView(top)
-        right.addView(bottom)
+        fun row() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
+        val top = row()
+        addTouchButton(top, "▲", KeyEvent.KEYCODE_DPAD_UP, view, compact = true)
+        val middle = row()
+        addTouchButton(middle, "◀", KeyEvent.KEYCODE_DPAD_LEFT, view, compact = true)
+        val blank = TextView(this).apply { text = "" }
+        middle.addView(blank, LinearLayout.LayoutParams((48 * resources.displayMetrics.density).toInt(), (48 * resources.displayMetrics.density).toInt()))
+        addTouchButton(middle, "▶", KeyEvent.KEYCODE_DPAD_RIGHT, view, compact = true)
+        val bottom = row()
+        addTouchButton(bottom, "▼", KeyEvent.KEYCODE_DPAD_DOWN, view, compact = true)
+        dpad.addView(top)
+        dpad.addView(middle)
+        dpad.addView(bottom)
+        val dpadSize = (166 * resources.displayMetrics.density).toInt()
+        val dpadParams = FrameLayout.LayoutParams(dpadSize, dpadSize, Gravity.BOTTOM or Gravity.START)
+        dpadParams.leftMargin = (12 * resources.displayMetrics.density).toInt()
+        dpadParams.bottomMargin = (10 * resources.displayMetrics.density).toInt()
+        root.addView(dpad, dpadParams)
+
+        val right = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            setPadding(2, 2, 2, 2)
+            alpha = 0.9f
+            tag = "touch-buttons"
+        }
+        val upper = row()
+        val lower = row()
+        specialButtonLabels.forEachIndexed { index, label ->
+            addTouchButton(if (index < 3) upper else lower, label, specialButtonKeys[index], view, compact = true)
+        }
+        right.addView(upper)
+        right.addView(lower)
         val start = Button(this).apply {
             text = "START"
-            setOnClickListener { view.sendKeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_START); postDelayed({ view.sendKeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_START) }, 90L) }
+            setOnClickListener {
+                view.sendKeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_START)
+                postDelayed({ view.sendKeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_START) }, 90L)
+            }
         }
-        right.addView(start, LinearLayout.LayoutParams((112 * resources.displayMetrics.density).toInt(), (42 * resources.displayMetrics.density).toInt()))
+        right.addView(start, LinearLayout.LayoutParams((138 * resources.displayMetrics.density).toInt(), (38 * resources.displayMetrics.density).toInt()))
         val rightParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END)
-        rightParams.rightMargin = (12 * resources.displayMetrics.density).toInt()
-        rightParams.bottomMargin = (16 * resources.displayMetrics.density).toInt()
+        rightParams.rightMargin = (8 * resources.displayMetrics.density).toInt()
+        rightParams.bottomMargin = (8 * resources.displayMetrics.density).toInt()
         root.addView(right, rightParams)
         updateSpecialButton()
-    }
-
-    private class VirtualJoystickView(context: android.content.Context, val onAxes: (Float, Float) -> Unit) : View(context) {
-        private val density = resources.displayMetrics.density
-        private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
-        private var axisX = 0f
-        private var axisY = 0f
-        private var activePointerId = MotionEvent.INVALID_POINTER_ID
-
-        private fun releaseStick() {
-            activePointerId = MotionEvent.INVALID_POINTER_ID
-            axisX = 0f
-            axisY = 0f
-            onAxes(0f, 0f)
-            invalidate()
-        }
-
-        private fun updateStick(x: Float, y: Float) {
-            val cx = width / 2f
-            val cy = height / 2f
-            val radius = minOf(width, height) * 0.43f
-            val dx = (x - cx) / radius
-            val dy = (y - cy) / radius
-            val magnitude = kotlin.math.sqrt(dx * dx + dy * dy)
-            val scale = if (magnitude > 1f) 1f / magnitude else 1f
-            axisX = dx * scale
-            axisY = dy * scale
-            onAxes(axisX, axisY)
-            invalidate()
-        }
-
-        override fun onDraw(canvas: android.graphics.Canvas) {
-            super.onDraw(canvas)
-            val cx = width / 2f
-            val cy = height / 2f
-            val radius = minOf(width, height) * 0.43f
-            paint.color = 0x66343B55
-            paint.style = android.graphics.Paint.Style.FILL
-            canvas.drawCircle(cx, cy, radius, paint)
-            paint.color = 0xCC77E3CD.toInt()
-            paint.style = android.graphics.Paint.Style.STROKE
-            paint.strokeWidth = 2.5f * density
-            canvas.drawCircle(cx, cy, radius, paint)
-            paint.color = 0xDDF2F4FA.toInt()
-            paint.style = android.graphics.Paint.Style.FILL
-            canvas.drawCircle(cx + axisX * radius * 0.68f, cy + axisY * radius * 0.68f, radius * 0.31f, paint)
-            paint.color = 0xFF20253A.toInt()
-            paint.textAlign = android.graphics.Paint.Align.CENTER
-            paint.textSize = 12f * density
-            canvas.drawText("JOYSTICK", cx, height - 5f * density, paint)
-        }
-
-        override fun onTouchEvent(event: MotionEvent): Boolean {
-            when (event.actionMasked) {
-                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
-                    activePointerId = event.getPointerId(event.actionIndex)
-                    updateStick(event.getX(event.actionIndex), event.getY(event.actionIndex))
-                }
-                MotionEvent.ACTION_MOVE -> {
-                    val index = event.findPointerIndex(activePointerId)
-                    if (index >= 0) updateStick(event.getX(index), event.getY(index))
-                }
-                MotionEvent.ACTION_POINTER_UP -> {
-                    if (event.getPointerId(event.actionIndex) == activePointerId) {
-                        val nextIndex = if (event.actionIndex == 0) 1 else 0
-                        if (nextIndex < event.pointerCount) {
-                            activePointerId = event.getPointerId(nextIndex)
-                            updateStick(event.getX(nextIndex), event.getY(nextIndex))
-                        } else releaseStick()
-                    }
-                }
-                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> releaseStick()
-            }
-            return true
-        }
     }
 
     private fun addTouchButton(group: LinearLayout, label: String, keyCode: Int, view: GLRetroView, compact: Boolean = false) {
@@ -608,9 +549,7 @@ class MainActivity : ComponentActivity() {
             val chosenY = if (!useHat && kotlin.math.abs(yAlt) > kotlin.math.abs(leftY)) yAlt else leftY
             val dpadX = if (kotlin.math.abs(hatX) > 0.2f) hatX else when { chosenX < -0.45f -> -1f; chosenX > 0.45f -> 1f; else -> 0f }
             val dpadY = if (kotlin.math.abs(hatY) > 0.2f) hatY else when { chosenY < -0.45f -> -1f; chosenY > 0.45f -> 1f; else -> 0f }
-            val mergedX = if (kotlin.math.abs(touchDpadX) > 0.2f) touchDpadX else dpadX
-            val mergedY = if (kotlin.math.abs(touchDpadY) > 0.2f) touchDpadY else dpadY
-            retroView?.sendMotionEvent(GLRetroView.MOTION_SOURCE_DPAD, mergedX, mergedY, 0)
+            retroView?.sendMotionEvent(GLRetroView.MOTION_SOURCE_DPAD, dpadX, dpadY, 0)
             retroView?.sendMotionEvent(GLRetroView.MOTION_SOURCE_ANALOG_LEFT, if (kotlin.math.abs(leftX) > 0.2f) leftX else 0f, if (kotlin.math.abs(leftY) > 0.2f) leftY else 0f, 0)
             retroView?.sendMotionEvent(GLRetroView.MOTION_SOURCE_ANALOG_RIGHT, event.getAxisValue(MotionEvent.AXIS_Z), event.getAxisValue(MotionEvent.AXIS_RZ), 0)
             return true
