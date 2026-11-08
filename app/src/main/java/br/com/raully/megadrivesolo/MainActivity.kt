@@ -1,6 +1,6 @@
 package br.com.raully.megadrivesolo
 
-import android.app.Activity
+import androidx.activity.ComponentActivity
 import android.content.Intent
 import android.net.Uri
 import android.os.Bundle
@@ -21,7 +21,7 @@ import com.swordfish.libretrodroid.ShaderConfig
 import kotlinx.coroutines.launch
 import java.io.File
 
-class MainActivity : Activity() {
+class MainActivity : ComponentActivity() {
     private val pickRom = 61
     private lateinit var root: FrameLayout
     private lateinit var gameContainer: FrameLayout
