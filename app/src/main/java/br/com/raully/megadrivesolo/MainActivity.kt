@@ -45,6 +45,10 @@ class MainActivity : ComponentActivity() {
     private var touchDpadY = 0f
     private var switchingGame = false
     private val cheats = mutableListOf<CheatEntry>()
+    private val specialButtonLabels = listOf("A", "B", "C", "X", "Y", "Z")
+    private val specialButtonKeys = listOf(KeyEvent.KEYCODE_BUTTON_Y, KeyEvent.KEYCODE_BUTTON_B, KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_BUTTON_L1, KeyEvent.KEYCODE_BUTTON_X, KeyEvent.KEYCODE_BUTTON_R1)
+    private var specialCombo = listOf(KeyEvent.KEYCODE_BUTTON_A, KeyEvent.KEYCODE_BUTTON_B)
+    private var specialComboLabel = "A+B"
     private data class CheatEntry(val code: String, var enabled: Boolean = true)
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -224,6 +228,14 @@ class MainActivity : ComponentActivity() {
             showGameMenuButton(view)
             menu.visibility = View.GONE
             lifecycleScope.launch {
+                view.getGLRetroEvents().flowWithLifecycle(lifecycle, Lifecycle.State.RESUMED).collect { event ->
+                    if (event == GLRetroView.GLRetroEvents.SurfaceCreated) {
+                        // Libretro RETRO_DEVICE_JOYPAD subclass 1 = Mega Drive 6-button pad.
+                        view.setControllerType(0, 0x101)
+                    }
+                }
+            }
+            lifecycleScope.launch {
                 view.getGLRetroErrors().flowWithLifecycle(lifecycle, Lifecycle.State.RESUMED).collect { error ->
                     runOnUiThread {
                         menu.visibility = View.VISIBLE
@@ -251,7 +263,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun showGameMenu(view: GLRetroView) {
-        val items = arrayOf("Continuar jogo", "Trocar jogo/ROM", "Cheats")
+        val items = arrayOf("Continuar jogo", "Trocar jogo/ROM", "Cheats", "Configurar botão especial")
         AlertDialog.Builder(this)
             .setTitle("Mega Drive Solo")
             .setItems(items) { _, which ->
@@ -259,10 +271,48 @@ class MainActivity : ComponentActivity() {
                     0 -> Unit
                     1 -> pauseAndChooseRom()
                     2 -> showCheatsDialog(view)
+                    3 -> configureSpecialCombo(view)
                 }
             }
             .setNegativeButton("Fechar", null)
             .show()
+    }
+
+    private fun configureSpecialCombo(view: GLRetroView) {
+        val selected = BooleanArray(specialButtonLabels.size) { index -> specialButtonKeys[index] in specialCombo }
+        AlertDialog.Builder(this)
+            .setTitle("Botão especial")
+            .setMultiChoiceItems(specialButtonLabels.toTypedArray(), selected) { _, which, checked -> selected[which] = checked }
+            .setPositiveButton("Salvar") { _, _ ->
+                val keys = specialButtonLabels.indices.filter { selected[it] }.map { specialButtonKeys[it] }
+                if (keys.isEmpty()) {
+                    Toast.makeText(this, "Selecione pelo menos um botão", Toast.LENGTH_SHORT).show()
+                } else {
+                    specialCombo = keys
+                    specialComboLabel = specialButtonLabels.indices.filter { selected[it] }.joinToString("+") { specialButtonLabels[it] }
+                    updateSpecialButton()
+                    Toast.makeText(this, "Botão especial: $specialComboLabel", Toast.LENGTH_SHORT).show()
+                }
+            }
+            .setNegativeButton("Cancelar", null)
+            .show()
+    }
+
+    private fun updateSpecialButton() {
+        val group = root.findViewWithTag<LinearLayout>("touch-buttons") ?: return
+        group.findViewWithTag<View>("special-button")?.let(group::removeView)
+        val special = Button(this).apply {
+            tag = "special-button"
+            text = "ESPECIAL $specialComboLabel"
+            setOnClickListener { retroView?.let { sendSpecial(it) } }
+        }
+        val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (44 * resources.displayMetrics.density).toInt())
+        group.addView(special, params)
+    }
+
+    private fun sendSpecial(view: GLRetroView) {
+        specialCombo.forEach { view.sendKeyEvent(KeyEvent.ACTION_DOWN, it) }
+        specialCombo.forEach { key -> view.postDelayed({ view.sendKeyEvent(KeyEvent.ACTION_UP, key) }, 120L) }
     }
 
     private fun pauseAndChooseRom() {
@@ -357,12 +407,13 @@ class MainActivity : ComponentActivity() {
     private fun showTouchControls(view: GLRetroView) {
         root.findViewWithTag<View>("touch-controls")?.let(root::removeView)
         val stick = VirtualJoystickView(this) { x, y ->
-            val dpadX = when { x < -0.35f -> -1f; x > 0.35f -> 1f; else -> 0f }
-            val dpadY = when { y < -0.35f -> -1f; y > 0.35f -> 1f; else -> 0f }
+            val dpadX = when { x < -0.55f -> -1f; x > 0.55f -> 1f; else -> 0f }
+            val dpadY = when { y < -0.55f -> -1f; y > 0.55f -> 1f; else -> 0f }
             touchDpadX = dpadX
             touchDpadY = dpadY
+            // Digital D-pad only: sending both D-pad and analog here caused fighting games
+            // to see duplicate/competing directions during character selection.
             view.sendMotionEvent(GLRetroView.MOTION_SOURCE_DPAD, dpadX, dpadY)
-            view.sendMotionEvent(GLRetroView.MOTION_SOURCE_ANALOG_LEFT, x, y)
         }.apply { tag = "touch-controls"; alpha = 0.82f }
         val stickSize = (168 * resources.displayMetrics.density).toInt()
         val stickParams = FrameLayout.LayoutParams(stickSize, stickSize, Gravity.BOTTOM or Gravity.START)
@@ -372,15 +423,13 @@ class MainActivity : ComponentActivity() {
 
         val right = LinearLayout(this).apply { orientation = LinearLayout.VERTICAL; gravity = Gravity.CENTER; setPadding(8, 6, 8, 6); alpha = 0.82f; tag = "touch-buttons" }
         root.findViewWithTag<View>("touch-buttons")?.let(root::removeView)
-        // Mega Drive 6-button mapping onto libretro's standard RetroPad inputs.
+        // Compact 3x2 Sega six-button layout. Make each button fit in the right-side safe area.
         val top = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        addTouchButton(top, "X", KeyEvent.KEYCODE_BUTTON_L1, view)
-        addTouchButton(top, "Y", KeyEvent.KEYCODE_BUTTON_X, view)
-        addTouchButton(top, "Z", KeyEvent.KEYCODE_BUTTON_R1, view)
         val bottom = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        addTouchButton(bottom, "A", KeyEvent.KEYCODE_BUTTON_Y, view)
-        addTouchButton(bottom, "B", KeyEvent.KEYCODE_BUTTON_B, view)
-        addTouchButton(bottom, "C", KeyEvent.KEYCODE_BUTTON_A, view)
+        specialButtonLabels.forEachIndexed { index, label ->
+            val row = if (index < 3) top else bottom
+            addTouchButton(row, label, specialButtonKeys[index], view, compact = true)
+        }
         right.addView(top)
         right.addView(bottom)
         val start = Button(this).apply {
@@ -392,6 +441,7 @@ class MainActivity : ComponentActivity() {
         rightParams.rightMargin = (12 * resources.displayMetrics.density).toInt()
         rightParams.bottomMargin = (16 * resources.displayMetrics.density).toInt()
         root.addView(right, rightParams)
+        updateSpecialButton()
     }
 
     private class VirtualJoystickView(context: android.content.Context, val onAxes: (Float, Float) -> Unit) : View(context) {
@@ -469,7 +519,7 @@ class MainActivity : ComponentActivity() {
         }
     }
 
-    private fun addTouchButton(group: LinearLayout, label: String, keyCode: Int, view: GLRetroView) {
+    private fun addTouchButton(group: LinearLayout, label: String, keyCode: Int, view: GLRetroView, compact: Boolean = false) {
         val button = Button(this).apply {
             text = label
             isAllCaps = false
@@ -504,9 +554,13 @@ class MainActivity : ComponentActivity() {
                 true
             }
         }
-        val size = (58 * resources.displayMetrics.density).toInt()
+        val buttonDp = if (compact) 46 else 58
+        val size = (buttonDp * resources.displayMetrics.density).toInt()
+        button.minWidth = size
+        button.minHeight = size
         val params = LinearLayout.LayoutParams(size, size)
-        params.setMargins((3 * resources.displayMetrics.density).toInt(), (3 * resources.displayMetrics.density).toInt(), (3 * resources.displayMetrics.density).toInt(), (3 * resources.displayMetrics.density).toInt())
+        val margin = (2 * resources.displayMetrics.density).toInt()
+        params.setMargins(margin, margin, margin, margin)
         group.addView(button, params)
     }
 
