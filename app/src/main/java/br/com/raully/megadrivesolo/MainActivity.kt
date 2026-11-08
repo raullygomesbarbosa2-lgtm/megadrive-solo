@@ -13,7 +13,7 @@ import android.widget.EditText
 import android.widget.FrameLayout
 import android.widget.ScrollView
 import android.widget.CheckBox
-import androidx.appcompat.app.AlertDialog
+import android.app.AlertDialog
 import android.widget.LinearLayout
 import android.widget.TextView
 import android.widget.Toast
