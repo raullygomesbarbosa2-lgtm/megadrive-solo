@@ -1,0 +1,14 @@
+<!doctype html>
+<html lang="pt-br"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no"><meta name="color-scheme" content="dark"><title>Mega Drive Solo</title>
+<style>
+*{box-sizing:border-box}html,body{margin:0;width:100%;height:100%;background:#101321;color:#fff;font:16px system-ui,sans-serif}body{display:flex;flex-direction:column}.top{padding:10px 16px;background:#191d30;display:flex;align-items:center;justify-content:space-between}.brand{font-weight:800;color:#77e3cd;font-size:19px}.hint{font-size:12px;color:#b7bdd0}#screen{flex:1;min-height:0;display:flex;justify-content:center;align-items:center;overflow:hidden}#game{width:100%;height:100%}#game canvas{object-fit:contain;max-width:100%;max-height:100%}.start{position:absolute;z-index:3;background:#101321ed;inset:52px 0 0;display:flex;align-items:center;justify-content:center;text-align:center;padding:24px}.panel{max-width:420px}.panel h1{font-size:28px;margin:0 0 10px}.panel p{color:#c3c8d7;line-height:1.5}.button{background:#77e3cd;color:#071b1a;border:0;border-radius:14px;padding:15px 22px;font-size:17px;font-weight:800;cursor:pointer}.status{font-size:12px;color:#aeb5c8;margin-top:15px}.foot{font-size:11px;text-align:center;color:#8c93a8;padding:8px}
+</style></head><body>
+<header class="top"><span class="brand">MEGA DRIVE SOLO</span><span class="hint">Emulação no celular</span></header>
+<main id="screen"><div id="game"></div></main>
+<section class="start" id="welcome"><div class="panel"><h1>Seu Mega Drive, no celular</h1><p>Escolha um arquivo de jogo que você tem direito de usar. O app não inclui ROMs nem BIOS.</p><button class="button" id="choose">ESCOLHER JOGO</button><input id="rom" type="file" accept=".bin,.gen,.md,.smd,.zip,application/octet-stream,application/zip" hidden><div class="status" id="status">O jogo é carregado no aparelho; o núcleo do emulador é baixado da internet.</div></div></section>
+<div class="foot">Projeto independente • não afiliado à SEGA</div>
+<script>
+const picker=document.getElementById('rom'),statusEl=document.getElementById('status'),welcome=document.getElementById('welcome');
+document.getElementById('choose').addEventListener('click',()=>picker.click());
+picker.addEventListener('change',()=>{const file=picker.files&&picker.files[0];if(!file)return;statusEl.textContent='Preparando '+file.name+'…';welcome.style.display='none';window.EJS_player='#game';window.EJS_core='segaMD';window.EJS_pathtodata='https://cdn.emulatorjs.org/stable/data/';window.EJS_gameUrl=URL.createObjectURL(file);window.EJS_gameName=file.name;window.EJS_startOnLoaded=true;const script=document.createElement('script');script.src='https://cdn.emulatorjs.org/stable/data/loader.js';script.onerror=()=>{welcome.style.display='flex';statusEl.textContent='Falha ao baixar o núcleo. Verifique a internet e tente de novo.'};document.body.appendChild(script)});
+</script></body></html>
