@@ -74,6 +74,12 @@ class MainActivity : ComponentActivity() {
         if (hasFocus) hideSystemBars()
     }
 
+    override fun onResume() {
+        super.onResume()
+        // Reapply immersive mode after returning from the document picker or a system dialog.
+        hideSystemBars()
+    }
+
     private fun openRomPicker() {
         val intent = Intent(Intent.ACTION_OPEN_DOCUMENT).apply {
             addCategory(Intent.CATEGORY_OPENABLE)

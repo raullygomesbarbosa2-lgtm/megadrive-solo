@@ -29,8 +29,8 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.11.0
-          name: Mega Drive Solo v1.11.0
+          tag_name: v1.12.0
+          name: Mega Drive Solo v1.12.0
           prerelease: true
-          body: 'Alavanca virtual repete pressionamentos digitais do D-pad ao manter uma direção, para avançar pelas grades de personagens; mantém os botões existentes.'
+          body: 'Tela de jogo em modo imersivo, alavanca virtual analógica para direções e suporte a arquivos de ROM e arquivos compactados compatíveis.'
           files: app/build/outputs/apk/debug/app-debug.apk

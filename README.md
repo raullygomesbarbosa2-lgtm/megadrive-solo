@@ -1,15 +1,19 @@
-# Mega Drive Solo (Android nativo, protótipo)
+# Mega Drive Solo (Android nativo)
 
-App Android nativo para abrir ROMs próprias de Mega Drive sem WebView e sem depender de frontend instalado. Renderização, áudio e execução do sistema passam pela biblioteca C++ LibretroDroid usando o core Genesis Plus GX para Android ARM64 incluído em `app/src/main/jniLibs/arm64-v8a/`.
+Player Android nativo, sem WebView, que usa LibretroDroid e o core Genesis Plus GX para executar jogos compatíveis. O vídeo é exibido na área de jogo em tela cheia imersiva (barras do sistema ocultas); a proporção original do jogo pode deixar faixas pretas em telas mais largas, preservando a imagem.
 
-## Build / APK
+## APK
 
-GitHub Actions compila um APK debug em push para `main`; baixe o artefato `MegaDriveSolo-native-debug-apk` em Actions. Push também publica uma pré-release no GitHub Releases. Requer Android arm64-v8a; versão debug, não assinada para Play Store.
+O GitHub Actions compila um APK debug para ARM e x86. Baixe a versão mais recente em [Releases](https://github.com/raullygomesbarbosa2-lgtm/megadrive-solo/releases) ou o artefato da execução em [Actions](https://github.com/raullygomesbarbosa2-lgtm/megadrive-solo/actions). APK debug é gratuito e não está assinado para publicação na Play Store; Android pode pedir confirmação para instalar apps de fontes externas.
 
-## Uso
+## Uso e controles
 
-Abra o app e escolha um dump próprio `.bin`, `.gen`, `.md`, `.smd` ou `.zip`. Não inclui jogos nem BIOS. Controles de tela e teste em aparelhos reais ainda não foram feitos; use controle Bluetooth/USB para jogar nesta versão inicial.
+Escolha um arquivo de jogo que você tenha direito de usar pelo seletor do Android. A tela do jogo ocupa todo o espaço disponível; no modo de jogo, use a alavanca virtual à esquerda para mover-se em qualquer direção e os botões A/B/C/X/Y/Z e START à direita. A alavanca e os botões podem ser usados juntos com multitouch. O menu ☰ permite trocar ROM e abrir opções.
+
+Arquivos diretos comuns: `.bin`, `.gen`, `.md`, `.mdx`, `.smd` e `.rom`; jogos de outros sistemas suportados pelo core também podem ser reconhecidos. Arquivos `.zip`, `.7z` e `.rar` são aceitos quando contêm um desses formatos de jogo. Para arquivos compactados com várias ROMs, o app escolhe a primeira entrada compatível. Senhas de arquivo compactado não são suportadas. O reconhecimento de uma extensão não garante que cada imagem, dump, hack ou formato de disco funcione: depende do formato real e do suporte do Genesis Plus GX.
+
+O app não inclui jogos nem BIOS. Use somente dumps obtidos legalmente.
 
 ## Componentes e licenças
 
-O frontend nativo deste app é código próprio simples. A execução do hardware emulado é fornecida por LibretroDroid e Genesis Plus GX, projetos de terceiros de código aberto. Isso é um app Android standalone, mas não é uma implementação nova de CPU/chips do Mega Drive feita do zero. Veja licenças de upstream antes de redistribuir.
+Este é um aplicativo Android standalone, não uma implementação nova dos chips/CPU do console: execução, renderização e áudio vêm de LibretroDroid e Genesis Plus GX, projetos de terceiros. Consulte as licenças dos projetos upstream antes de redistribuir.
