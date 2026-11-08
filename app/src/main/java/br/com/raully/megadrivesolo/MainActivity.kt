@@ -406,30 +406,17 @@ class MainActivity : ComponentActivity() {
 
     private fun showTouchControls(view: GLRetroView) {
         root.findViewWithTag<View>("touch-controls")?.let(root::removeView)
-        val dpad = LinearLayout(this).apply {
-            orientation = LinearLayout.VERTICAL
-            gravity = Gravity.CENTER
-            alpha = 0.9f
-            tag = "touch-controls"
-        }
-        fun row() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        val top = row()
-        addTouchButton(top, "▲", KeyEvent.KEYCODE_DPAD_UP, view, compact = true)
-        val middle = row()
-        addTouchButton(middle, "◀", KeyEvent.KEYCODE_DPAD_LEFT, view, compact = true)
-        val blank = TextView(this).apply { text = "" }
-        middle.addView(blank, LinearLayout.LayoutParams((48 * resources.displayMetrics.density).toInt(), (48 * resources.displayMetrics.density).toInt()))
-        addTouchButton(middle, "▶", KeyEvent.KEYCODE_DPAD_RIGHT, view, compact = true)
-        val bottom = row()
-        addTouchButton(bottom, "▼", KeyEvent.KEYCODE_DPAD_DOWN, view, compact = true)
-        dpad.addView(top)
-        dpad.addView(middle)
-        dpad.addView(bottom)
-        val dpadSize = (166 * resources.displayMetrics.density).toInt()
-        val dpadParams = FrameLayout.LayoutParams(dpadSize, dpadSize, Gravity.BOTTOM or Gravity.START)
-        dpadParams.leftMargin = (12 * resources.displayMetrics.density).toInt()
-        dpadParams.bottomMargin = (10 * resources.displayMetrics.density).toInt()
-        root.addView(dpad, dpadParams)
+        val stick = VirtualJoystickView(this) { x, y ->
+            // Keep the circular lever, but report clean digital directions to fighting games.
+            val dx = when { x < -0.38f -> -1f; x > 0.38f -> 1f; else -> 0f }
+            val dy = when { y < -0.38f -> -1f; y > 0.38f -> 1f; else -> 0f }
+            view.sendMotionEvent(GLRetroView.MOTION_SOURCE_DPAD, dx, dy, 0)
+        }.apply { tag = "touch-controls"; alpha = 0.9f }
+        val stickSize = (172 * resources.displayMetrics.density).toInt()
+        val stickParams = FrameLayout.LayoutParams(stickSize, stickSize, Gravity.BOTTOM or Gravity.START)
+        stickParams.leftMargin = (14 * resources.displayMetrics.density).toInt()
+        stickParams.bottomMargin = (8 * resources.displayMetrics.density).toInt()
+        root.addView(stick, stickParams)
 
         val right = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
@@ -438,6 +425,7 @@ class MainActivity : ComponentActivity() {
             alpha = 0.9f
             tag = "touch-buttons"
         }
+        fun row() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
         val upper = row()
         val lower = row()
         specialButtonLabels.forEachIndexed { index, label ->
@@ -458,6 +446,74 @@ class MainActivity : ComponentActivity() {
         rightParams.bottomMargin = (8 * resources.displayMetrics.density).toInt()
         root.addView(right, rightParams)
         updateSpecialButton()
+    }
+
+    private class VirtualJoystickView(context: android.content.Context, private val onAxes: (Float, Float) -> Unit) : View(context) {
+        private val density = resources.displayMetrics.density
+        private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        private var axisX = 0f
+        private var axisY = 0f
+        private var activePointerId = MotionEvent.INVALID_POINTER_ID
+
+        private fun update(x: Float, y: Float) {
+            val cx = width / 2f
+            val cy = height / 2f
+            val radius = minOf(width, height) * 0.37f
+            var dx = (x - cx) / radius
+            var dy = (y - cy) / radius
+            val magnitude = kotlin.math.sqrt(dx * dx + dy * dy)
+            if (magnitude > 1f) { dx /= magnitude; dy /= magnitude }
+            axisX = dx
+            axisY = dy
+            onAxes(axisX, axisY)
+            invalidate()
+        }
+
+        private fun release() {
+            activePointerId = MotionEvent.INVALID_POINTER_ID
+            axisX = 0f
+            axisY = 0f
+            onAxes(0f, 0f)
+            invalidate()
+        }
+
+        override fun onDraw(canvas: android.graphics.Canvas) {
+            super.onDraw(canvas)
+            val cx = width / 2f
+            val cy = height / 2f
+            val radius = minOf(width, height) * 0.43f
+            paint.style = android.graphics.Paint.Style.FILL
+            paint.color = 0x99535C73.toInt()
+            canvas.drawCircle(cx, cy, radius, paint)
+            paint.style = android.graphics.Paint.Style.STROKE
+            paint.strokeWidth = 2.5f * density
+            paint.color = 0xFFE0E5F0.toInt()
+            canvas.drawCircle(cx, cy, radius, paint)
+            paint.color = 0x667DE6D2
+            canvas.drawLine(cx - radius * 0.75f, cy, cx + radius * 0.75f, cy, paint)
+            canvas.drawLine(cx, cy - radius * 0.75f, cx, cy + radius * 0.75f, paint)
+            paint.style = android.graphics.Paint.Style.FILL
+            paint.color = 0xFFE0E5F0.toInt()
+            canvas.drawCircle(cx + axisX * radius * 0.65f, cy + axisY * radius * 0.65f, radius * 0.31f, paint)
+        }
+
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    activePointerId = event.getPointerId(event.actionIndex)
+                    update(event.getX(event.actionIndex), event.getY(event.actionIndex))
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val index = event.findPointerIndex(activePointerId)
+                    if (index >= 0) update(event.getX(index), event.getY(index))
+                }
+                MotionEvent.ACTION_POINTER_UP -> {
+                    if (event.getPointerId(event.actionIndex) == activePointerId) release()
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> release()
+            }
+            return true
+        }
     }
 
     private fun addTouchButton(group: LinearLayout, label: String, keyCode: Int, view: GLRetroView, compact: Boolean = false) {
