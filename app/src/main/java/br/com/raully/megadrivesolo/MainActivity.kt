@@ -11,6 +11,8 @@ import android.view.Gravity
 import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
+import android.graphics.Color
+import android.graphics.drawable.GradientDrawable
 import android.widget.Button
 import android.widget.EditText
 import android.widget.FrameLayout
@@ -58,7 +60,20 @@ class MainActivity : ComponentActivity() {
         gameContainer = findViewById(R.id.gamecontainer)
         menu = findViewById(R.id.menu)
         status = findViewById(R.id.status)
-        findViewById<Button>(R.id.openrom).setOnClickListener { openRomPicker() }
+        window.statusBarColor = Color.rgb(2, 13, 23)
+        window.navigationBarColor = Color.rgb(2, 13, 23)
+        menu.setBackgroundColor(Color.rgb(2, 13, 23))
+        status.setTextColor(0xFF8FEFFF.toInt())
+        findViewById<Button>(R.id.openrom).apply {
+            setTextColor(Color.WHITE)
+            background = GradientDrawable().apply {
+                setColor(0xFF06202C.toInt())
+                cornerRadius = dp(14).toFloat()
+                setStroke(dp(2), 0xFF36E8FF.toInt())
+            }
+            elevation = dp(7).toFloat()
+            setOnClickListener { openRomPicker() }
+        }
     }
 
     private fun hideSystemBars() {
@@ -222,12 +237,14 @@ class MainActivity : ComponentActivity() {
                 gameFilePath = rom.absolutePath
                 systemDirectory = filesDir.absolutePath
                 savesDirectory = File(filesDir, "saves").apply { mkdirs() }.absolutePath
-                shader = ShaderConfig.Default
+                shader = ShaderConfig.CRT
             }
             val view = GLRetroView(this, viewData)
             retroView = view
             lifecycle.addObserver(view)
+            gameContainer.removeAllViews()
             gameContainer.addView(view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER))
+            gameContainer.addView(CrtGlassView(this), FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
             showTouchControls(view)
             showGameMenuButton(view)
             menu.visibility = View.GONE
@@ -260,6 +277,12 @@ class MainActivity : ComponentActivity() {
             text = "☰"
             textSize = 22f
             contentDescription = "Menu do jogo"
+            setTextColor(0xFF39F3FF.toInt())
+            background = neonCircle(0xFF39F3FF.toInt())
+            minWidth = 0
+            minHeight = 0
+            setPadding(0, 0, 0, 0)
+            elevation = dp(8).toFloat()
             setOnClickListener { showGameMenu(view) }
         }
         val params = FrameLayout.LayoutParams((56 * resources.displayMetrics.density).toInt(), (52 * resources.displayMetrics.density).toInt(), Gravity.TOP or Gravity.END)
@@ -307,13 +330,32 @@ class MainActivity : ComponentActivity() {
     private fun updateSpecialButton() {
         val group = root.findViewWithTag<LinearLayout>("touch-buttons") ?: return
         group.findViewWithTag<View>("special-button")?.let(group::removeView)
+        val specialSize = dp(48)
         val special = Button(this).apply {
             tag = "special-button"
-            text = "ESPECIAL $specialComboLabel"
+            text = "★"
+            textSize = 20f
+            contentDescription = "Especial $specialComboLabel"
+            setTextColor(Color.WHITE)
+            background = neonCircle(0xFFFFD45A.toInt())
+            elevation = dp(9).toFloat()
+            minWidth = 0
+            minHeight = 0
+            setPadding(0, 0, 0, 0)
             setOnClickListener { retroView?.let { sendSpecial(it) } }
         }
-        val params = LinearLayout.LayoutParams(LinearLayout.LayoutParams.MATCH_PARENT, (44 * resources.displayMetrics.density).toInt())
+        val params = LinearLayout.LayoutParams(specialSize, specialSize)
+        params.gravity = Gravity.CENTER
+        params.topMargin = dp(3)
         group.addView(special, params)
+    }
+
+    private fun dp(value: Int): Int = (value * resources.displayMetrics.density).toInt()
+
+    private fun neonCircle(color: Int): GradientDrawable = GradientDrawable().apply {
+        shape = GradientDrawable.OVAL
+        setColor(0xCC07151E.toInt())
+        setStroke(dp(2), color)
     }
 
     private fun sendSpecial(view: GLRetroView) {
@@ -498,6 +540,36 @@ class MainActivity : ComponentActivity() {
         updateSpecialButton()
     }
 
+    private class CrtGlassView(context: android.content.Context) : View(context) {
+        private val scanline = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0x1800EFFF
+            strokeWidth = 1.2f * resources.displayMetrics.density
+        }
+        private val frame = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            color = 0x5536E8FF
+            style = android.graphics.Paint.Style.STROKE
+            strokeWidth = 2f * resources.displayMetrics.density
+        }
+
+        init {
+            isClickable = false
+            isFocusable = false
+            importantForAccessibility = View.IMPORTANT_FOR_ACCESSIBILITY_NO
+        }
+
+        override fun onDraw(canvas: android.graphics.Canvas) {
+            super.onDraw(canvas)
+            val spacing = (4 * resources.displayMetrics.density).coerceAtLeast(3f)
+            var y = 0f
+            while (y < height) {
+                canvas.drawLine(0f, y, width.toFloat(), y, scanline)
+                y += spacing
+            }
+            val inset = frame.strokeWidth
+            canvas.drawRoundRect(inset, inset, width - inset, height - inset, 18f * resources.displayMetrics.density, 18f * resources.displayMetrics.density, frame)
+        }
+    }
+
     private class VirtualJoystickView(context: android.content.Context, private val onAxes: (Float, Float) -> Unit) : View(context) {
         private val density = resources.displayMetrics.density
         private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
@@ -533,13 +605,15 @@ class MainActivity : ComponentActivity() {
             val cy = height / 2f
             val radius = minOf(width, height) * 0.43f
             paint.style = android.graphics.Paint.Style.FILL
-            paint.color = 0x99535C73.toInt()
+            paint.color = 0xAA031923.toInt()
             canvas.drawCircle(cx, cy, radius, paint)
             paint.style = android.graphics.Paint.Style.STROKE
-            paint.strokeWidth = 2.5f * density
-            paint.color = 0xFFE0E5F0.toInt()
+            paint.strokeWidth = 3f * density
+            paint.color = 0xFF36E8FF.toInt()
+            paint.setShadowLayer(8f * density, 0f, 0f, 0xFF00DFFF.toInt())
             canvas.drawCircle(cx, cy, radius, paint)
-            paint.color = 0x667DE6D2
+            paint.color = 0xFF00DFFF.toInt()
+            paint.clearShadowLayer()
             canvas.drawLine(cx - radius * 0.75f, cy, cx + radius * 0.75f, cy, paint)
             canvas.drawLine(cx, cy - radius * 0.75f, cx, cy + radius * 0.75f, paint)
             paint.style = android.graphics.Paint.Style.FILL
@@ -567,12 +641,27 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun addTouchButton(group: LinearLayout, label: String, keyCode: Int, view: GLRetroView, compact: Boolean = false) {
+        val neon = when (label) {
+            "A" -> 0xFFFF4FD8.toInt()
+            "B" -> 0xFFFF4D6D.toInt()
+            "C" -> 0xFFFFB84D.toInt()
+            "X" -> 0xFF45F3FF.toInt()
+            "Y" -> 0xFF69FF9A.toInt()
+            "Z" -> 0xFF8C7BFF.toInt()
+            else -> 0xFF36E8FF.toInt()
+        }
         val button = Button(this).apply {
             text = label
             isAllCaps = false
-            minWidth = 48
-            minHeight = 48
-            setPadding(6, 0, 6, 0)
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            textSize = 17f
+            setTextColor(Color.WHITE)
+            minWidth = 0
+            minHeight = 0
+            setPadding(0, 0, 0, 0)
+            background = neonCircle(neon)
+            elevation = dp(7).toFloat()
+            setShadowLayer(dp(7).toFloat(), 0f, 0f, neon)
             contentDescription = "Botão $label"
             setOnTouchListener { _, event ->
                 val pressActions = setOf(MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN, MotionEvent.ACTION_MOVE)
