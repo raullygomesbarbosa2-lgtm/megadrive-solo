@@ -12,6 +12,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import android.view.View
 import android.graphics.Color
+import android.graphics.RectF
 import android.graphics.drawable.GradientDrawable
 import android.widget.Button
 import android.widget.EditText
@@ -223,6 +224,7 @@ class MainActivity : ComponentActivity() {
             }
             retroView = null
             root.findViewWithTag<View>("touch-controls")?.let(root::removeView)
+            root.findViewWithTag<View>("touch-dpad")?.let(root::removeView)
             root.findViewWithTag<View>("touch-buttons")?.let(root::removeView)
             root.findViewWithTag<View>("game-menu")?.let(root::removeView)
             val abi = android.os.Build.SUPPORTED_ABIS.firstOrNull { it in setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86") }
@@ -248,6 +250,13 @@ class MainActivity : ComponentActivity() {
             showTouchControls(view)
             showGameMenuButton(view)
             menu.visibility = View.GONE
+            lifecycleScope.launch {
+                view.getGLRetroEvents().flowWithLifecycle(lifecycle, Lifecycle.State.RESUMED).collect { event ->
+                    if (event == GLRetroView.GLRetroEvents.SurfaceCreated) {
+                        runCatching { view.viewport = RectF(-0.18f, 0f, 1.36f, 1f) }
+                    }
+                }
+            }
             lifecycleScope.launch {
                 var sixButtonSet = false
                 view.getGLRetroEvents().flowWithLifecycle(lifecycle, Lifecycle.State.RESUMED).collect { event ->
@@ -510,6 +519,12 @@ class MainActivity : ComponentActivity() {
         stickParams.bottomMargin = (8 * resources.displayMetrics.density).toInt()
         root.addView(stick, stickParams)
 
+        val dpadSize = dp(100)
+        val dpad = DpadControlView(this, ::updateDirections).apply { tag = "touch-dpad"; alpha = 0.92f }
+        val dpadParams = FrameLayout.LayoutParams(dpadSize, dpadSize, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL)
+        dpadParams.bottomMargin = dp(8)
+        root.addView(dpad, dpadParams)
+
         val right = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             gravity = Gravity.CENTER
@@ -538,6 +553,90 @@ class MainActivity : ComponentActivity() {
         rightParams.bottomMargin = (8 * resources.displayMetrics.density).toInt()
         root.addView(right, rightParams)
         updateSpecialButton()
+    }
+
+    private class DpadControlView(context: android.content.Context, private val onDirections: (Int, Int) -> Unit) : View(context) {
+        private val density = resources.displayMetrics.density
+        private val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG)
+        private val activePointers = mutableMapOf<Int, Pair<Int, Int>>()
+        private var currentX = 0
+        private var currentY = 0
+
+        private fun directionAt(x: Float, y: Float): Pair<Int, Int> {
+            val dx = x - width / 2f
+            val dy = y - height / 2f
+            val radius = minOf(width, height) * 0.48f
+            if (kotlin.math.sqrt(dx * dx + dy * dy) < radius * 0.24f) return 0 to 0
+            val angle = Math.toDegrees(kotlin.math.atan2(dy.toDouble(), dx.toDouble()))
+            return when {
+                angle >= -22.5 && angle < 22.5 -> 1 to 0
+                angle >= 22.5 && angle < 67.5 -> 1 to 1
+                angle >= 67.5 && angle < 112.5 -> 0 to 1
+                angle >= 112.5 && angle < 157.5 -> -1 to 1
+                angle >= 157.5 || angle < -157.5 -> -1 to 0
+                angle >= -157.5 && angle < -112.5 -> -1 to -1
+                angle >= -112.5 && angle < -67.5 -> 0 to -1
+                else -> 1 to -1
+            }
+        }
+
+        private fun refreshDirections() {
+            var x = 0
+            var y = 0
+            activePointers.values.forEach { direction ->
+                if (direction.first != 0) x = direction.first
+                if (direction.second != 0) y = direction.second
+            }
+            currentX = x
+            currentY = y
+            onDirections(x, y)
+            invalidate()
+        }
+
+        override fun onDraw(canvas: android.graphics.Canvas) {
+            super.onDraw(canvas)
+            val cx = width / 2f
+            val cy = height / 2f
+            val radius = minOf(width, height) * 0.47f
+            paint.style = android.graphics.Paint.Style.FILL
+            paint.color = 0xAA031923.toInt()
+            canvas.drawCircle(cx, cy, radius, paint)
+            paint.style = android.graphics.Paint.Style.STROKE
+            paint.strokeWidth = 2.5f * density
+            paint.color = 0xFF36E8FF.toInt()
+            paint.setShadowLayer(8f * density, 0f, 0f, 0xFF00DFFF.toInt())
+            canvas.drawCircle(cx, cy, radius, paint)
+            paint.clearShadowLayer()
+            paint.style = android.graphics.Paint.Style.FILL
+            val activeColor = 0xFF9AFFFF.toInt()
+            val idleColor = 0xFF37CDE8.toInt()
+            val arm = radius * 0.28f
+            val half = radius * 0.23f
+            paint.color = if (currentY < 0) activeColor else idleColor
+            canvas.drawRoundRect(cx - half, cy - radius * 0.86f, cx + half, cy - radius * 0.20f, 8f * density, 8f * density, paint)
+            paint.color = if (currentY > 0) activeColor else idleColor
+            canvas.drawRoundRect(cx - half, cy + radius * 0.20f, cx + half, cy + radius * 0.86f, 8f * density, 8f * density, paint)
+            paint.color = if (currentX < 0) activeColor else idleColor
+            canvas.drawRoundRect(cx - radius * 0.86f, cy - half, cx - radius * 0.20f, cy + half, 8f * density, 8f * density, paint)
+            paint.color = if (currentX > 0) activeColor else idleColor
+            canvas.drawRoundRect(cx + radius * 0.20f, cy - half, cx + radius * 0.86f, cy + half, 8f * density, 8f * density, paint)
+            paint.color = 0xFF08202A.toInt()
+            canvas.drawCircle(cx, cy, radius * 0.20f, paint)
+        }
+
+        override fun onTouchEvent(event: MotionEvent): Boolean {
+            val id = event.getPointerId(event.actionIndex)
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> activePointers[id] = directionAt(event.getX(event.actionIndex), event.getY(event.actionIndex))
+                MotionEvent.ACTION_MOVE -> for (index in 0 until event.pointerCount) {
+                    val pointerId = event.getPointerId(index)
+                    if (pointerId in activePointers) activePointers[pointerId] = directionAt(event.getX(index), event.getY(index))
+                }
+                MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> activePointers.remove(id)
+            }
+            refreshDirections()
+            return true
+        }
     }
 
     private class CrtGlassView(context: android.content.Context) : View(context) {
