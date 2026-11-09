@@ -226,6 +226,7 @@ class MainActivity : ComponentActivity() {
             root.findViewWithTag<View>("touch-controls")?.let(root::removeView)
             root.findViewWithTag<View>("touch-dpad")?.let(root::removeView)
             root.findViewWithTag<View>("touch-buttons")?.let(root::removeView)
+            root.findViewWithTag<View>("touch-actions")?.let(root::removeView)
             root.findViewWithTag<View>("game-menu")?.let(root::removeView)
             val abi = android.os.Build.SUPPORTED_ABIS.firstOrNull { it in setOf("arm64-v8a", "armeabi-v7a", "x86_64", "x86") }
                 ?: throw IllegalStateException("Arquitetura Android não suportada neste APK: ${android.os.Build.SUPPORTED_ABIS.joinToString()}")
@@ -342,7 +343,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun updateSpecialButton() {
-        val group = root.findViewWithTag<LinearLayout>("touch-buttons") ?: return
+        val group = root.findViewWithTag<LinearLayout>("button-row-top") ?: return
         group.findViewWithTag<View>("special-button")?.let(group::removeView)
         val specialSize = dp(48)
         val special = Button(this).apply {
@@ -358,6 +359,13 @@ class MainActivity : ComponentActivity() {
             setPadding(0, 0, 0, 0)
             setOnClickListener { retroView?.let { sendSpecial(it) } }
         }
+        special.setOnTouchListener { _, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> sendSpecialDown(retroView)
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> sendSpecialUp(retroView)
+            }
+            true
+        }
         val params = LinearLayout.LayoutParams(specialSize, specialSize)
         params.gravity = Gravity.CENTER
         params.topMargin = dp(3)
@@ -372,9 +380,19 @@ class MainActivity : ComponentActivity() {
         setStroke(dp(2), color)
     }
 
-    private fun sendSpecial(view: GLRetroView) {
+    private fun sendSpecialDown(view: GLRetroView?) {
+        view ?: return
         specialCombo.forEach { view.sendKeyEvent(KeyEvent.ACTION_DOWN, it) }
-        specialCombo.forEach { key -> view.postDelayed({ view.sendKeyEvent(KeyEvent.ACTION_UP, key) }, 120L) }
+    }
+
+    private fun sendSpecialUp(view: GLRetroView?) {
+        view ?: return
+        specialCombo.forEach { view.sendKeyEvent(KeyEvent.ACTION_UP, it) }
+    }
+
+    private fun sendSpecial(view: GLRetroView) {
+        sendSpecialDown(view)
+        view.postDelayed({ sendSpecialUp(view) }, 120L)
     }
 
     private fun pauseAndChooseRom() {
@@ -539,21 +557,51 @@ class MainActivity : ComponentActivity() {
             tag = "touch-buttons"
         }
         fun row() = LinearLayout(this).apply { orientation = LinearLayout.HORIZONTAL; gravity = Gravity.CENTER }
-        val upper = row()
+        val upper = row().apply { tag = "button-row-top" }
         val lower = row()
         specialButtonLabels.forEachIndexed { index, label ->
             addTouchButton(if (index < 3) upper else lower, label, specialButtonKeys[index], view, compact = true)
         }
         right.addView(upper)
         right.addView(lower)
-        val start = Button(this).apply {
-            text = "START"
-            setOnClickListener {
-                view.sendKeyEvent(KeyEvent.ACTION_DOWN, KeyEvent.KEYCODE_BUTTON_START)
-                postDelayed({ view.sendKeyEvent(KeyEvent.ACTION_UP, KeyEvent.KEYCODE_BUTTON_START) }, 90L)
+        val actionRow = row().apply { gravity = Gravity.CENTER }
+        fun centerActionButton(label: String, keyCode: Int) = Button(this).apply {
+            text = label
+            textSize = 9f
+            typeface = android.graphics.Typeface.DEFAULT_BOLD
+            setTextColor(Color.WHITE)
+            background = neonCircle(0xFF36E8FF.toInt())
+            elevation = dp(7).toFloat()
+            minWidth = 0
+            minHeight = 0
+            setPadding(0, 0, 0, 0)
+            contentDescription = label
+            setOnTouchListener { _, event ->
+                when (event.actionMasked) {
+                    MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> view.sendKeyEvent(KeyEvent.ACTION_DOWN, keyCode)
+                    MotionEvent.ACTION_UP, MotionEvent.ACTION_POINTER_UP, MotionEvent.ACTION_CANCEL -> view.sendKeyEvent(KeyEvent.ACTION_UP, keyCode)
+                }
+                true
             }
         }
-        right.addView(start, LinearLayout.LayoutParams((138 * resources.displayMetrics.density).toInt(), (38 * resources.displayMetrics.density).toInt()))
+        val select = centerActionButton("SELECT", KeyEvent.KEYCODE_BUTTON_SELECT)
+        val start = centerActionButton("START", KeyEvent.KEYCODE_BUTTON_START)
+        val actionSize = dp(50)
+        val actionParams1 = LinearLayout.LayoutParams(actionSize, actionSize)
+        actionParams1.setMargins(dp(10), 0, dp(10), 0)
+        val actionParams2 = LinearLayout.LayoutParams(actionSize, actionSize)
+        actionParams2.setMargins(dp(10), 0, dp(10), 0)
+        actionRow.addView(select, actionParams1)
+        actionRow.addView(start, actionParams2)
+        val actionContainer = LinearLayout(this).apply {
+            orientation = LinearLayout.VERTICAL
+            gravity = Gravity.CENTER
+            tag = "touch-actions"
+            addView(actionRow)
+        }
+        val actionContainerParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL)
+        actionContainerParams.bottomMargin = dp(8)
+        root.addView(actionContainer, actionContainerParams)
         val rightParams = FrameLayout.LayoutParams(FrameLayout.LayoutParams.WRAP_CONTENT, FrameLayout.LayoutParams.WRAP_CONTENT, Gravity.BOTTOM or Gravity.END)
         rightParams.rightMargin = (8 * resources.displayMetrics.density).toInt()
         rightParams.bottomMargin = (8 * resources.displayMetrics.density).toInt()
