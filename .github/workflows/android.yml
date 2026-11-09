@@ -29,8 +29,8 @@ jobs:
         if: github.event_name == 'push'
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: v1.13.0
-          name: Mega Drive Solo v1.13.0
+          tag_name: v1.15.0
+          name: Mega Drive Solo v1.15.0
           prerelease: true
-          body: 'Tema azul ciano neon, controles circulares com cores neon, botão de especial circular e efeito visual CRT com scanlines e moldura de tubo em tela cheia.'
+          body: 'Tela de jogo ampliada para eliminar bordas pretas laterais; controles na tela com alavanca analógica e D-pad independente, além de controles Bluetooth; botões neon circulares e efeito CRT.'
           files: app/build/outputs/apk/debug/app-debug.apk
