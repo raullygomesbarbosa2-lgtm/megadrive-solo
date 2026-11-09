@@ -245,6 +245,11 @@ class MainActivity : ComponentActivity() {
             retroView = view
             lifecycle.addObserver(view)
             gameContainer.removeAllViews()
+            gameContainer.clipChildren = false
+            gameContainer.clipToPadding = false
+            // Stretch the 4:3 game image across the landscape screen to eliminate side bars.
+            val screenAspect = resources.displayMetrics.widthPixels.toFloat() / resources.displayMetrics.heightPixels.toFloat()
+            view.scaleX = screenAspect / (4f / 3f)
             gameContainer.addView(view, FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT, Gravity.CENTER))
             gameContainer.addView(CrtGlassView(this), FrameLayout.LayoutParams(FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT))
             showTouchControls(view)
@@ -253,7 +258,7 @@ class MainActivity : ComponentActivity() {
             lifecycleScope.launch {
                 view.getGLRetroEvents().flowWithLifecycle(lifecycle, Lifecycle.State.RESUMED).collect { event ->
                     if (event == GLRetroView.GLRetroEvents.SurfaceCreated) {
-                        runCatching { view.viewport = RectF(-0.18f, 0f, 1.36f, 1f) }
+                        runCatching { view.viewport = RectF(0f, 0f, 1f, 1f) }
                     }
                 }
             }
@@ -521,8 +526,9 @@ class MainActivity : ComponentActivity() {
 
         val dpadSize = dp(100)
         val dpad = DpadControlView(this, ::updateDirections).apply { tag = "touch-dpad"; alpha = 0.92f }
-        val dpadParams = FrameLayout.LayoutParams(dpadSize, dpadSize, Gravity.BOTTOM or Gravity.CENTER_HORIZONTAL)
-        dpadParams.bottomMargin = dp(8)
+        val dpadParams = FrameLayout.LayoutParams(dpadSize, dpadSize, Gravity.BOTTOM or Gravity.START)
+        dpadParams.leftMargin = dp(14 + 172 + 10)
+        dpadParams.bottomMargin = dp(44)
         root.addView(dpad, dpadParams)
 
         val right = LinearLayout(this).apply {
