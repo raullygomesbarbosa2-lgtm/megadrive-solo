@@ -72,7 +72,7 @@ jobs:
           AppName=Mega Drive Solo ($($item.Label))
           AppVersion=$version
           AppPublisher=Raully Gomes Barbosa
-          DefaultDirName=$defaultDir
+          DefaultDirName={localappdata}\Programs\Mega Drive Solo ($($item.Label))
           DefaultGroupName=Mega Drive Solo ($($item.Label))
           OutputDir=$work
           OutputBaseFilename=MegaDriveSolo-Windows-$($item.Name)-Setup
@@ -82,7 +82,7 @@ jobs:
           SolidCompression=yes
           WizardStyle=modern
           Uninstallable=yes
-          PrivilegesRequired=admin
+          PrivilegesRequired=lowest
           
           [Files]
           Source: "$installDir\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
