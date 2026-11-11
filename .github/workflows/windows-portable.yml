@@ -1,0 +1,81 @@
+name: Package Windows Mega Drive emulator
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  package-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Download and extract RetroArch stable package
+        shell: pwsh
+        run: |
+          choco install 7zip -y --no-progress
+          $ErrorActionPreference = 'Stop'
+          $sevenZip = 'C:\Program Files\7-Zip\7z.exe'
+          $stage = Join-Path $env:RUNNER_TEMP 'MegaDriveSolo-Windows'
+          New-Item -ItemType Directory -Force -Path $stage | Out-Null
+          $raArchive = Join-Path $env:RUNNER_TEMP 'RetroArch.7z'
+          Invoke-WebRequest 'https://buildbot.libretro.com/stable/1.22.2/windows/x86_64/RetroArch.7z' -OutFile $raArchive
+          & $sevenZip x $raArchive "-o$stage" -y
+          if ($LASTEXITCODE -ne 0) { throw 'Não foi possível extrair o pacote oficial do RetroArch.' }
+          $retroArchExe = Get-ChildItem $stage -Filter retroarch.exe -Recurse | Select-Object -First 1
+          if (-not $retroArchExe) { throw 'retroarch.exe não foi encontrado no pacote baixado.' }
+          $installDir = $retroArchExe.Directory.FullName
+          $coreZip = Join-Path $env:RUNNER_TEMP 'genesis_plus_gx.zip'
+          Invoke-WebRequest 'https://buildbot.libretro.com/nightly/windows/x86_64/latest/genesis_plus_gx_libretro.dll.zip' -OutFile $coreZip
+          $coreTemp = Join-Path $env:RUNNER_TEMP 'genesis-core'
+          Expand-Archive $coreZip $coreTemp -Force
+          $coreDll = Get-ChildItem $coreTemp -Filter genesis_plus_gx_libretro.dll -Recurse | Select-Object -First 1
+          if (-not $coreDll) { throw 'O core Genesis Plus GX para Windows não foi encontrado.' }
+          $coreDir = Join-Path $installDir 'cores'
+          New-Item -ItemType Directory -Force -Path $coreDir | Out-Null
+          Copy-Item $coreDll.FullName (Join-Path $coreDir $coreDll.Name) -Force
+          New-Item -ItemType Directory -Force -Path (Join-Path $installDir 'games'), (Join-Path $installDir 'saves') | Out-Null
+          @'
+          @echo off
+          cd /d "%~dp0"
+          start "Mega Drive Solo para Windows" retroarch.exe
+          '@ | Set-Content (Join-Path $installDir 'Abrir-Mega-Drive-Solo.cmd') -Encoding ASCII
+          @'
+          MEGA DRIVE SOLO PARA WINDOWS
+
+          Este pacote portatil inclui RetroArch e o core Genesis Plus GX para Windows 64-bit.
+          Nao inclui jogos nem BIOS. Use apenas ROMs que voce tem direito de usar.
+
+          Para abrir: execute Abrir-Mega-Drive-Solo.cmd.
+          Para carregar jogo: Load Content e selecione sua ROM (.bin, .gen, .md, .smd, .zip).
+          Controles: teclado e controles USB/Bluetooth compatíveis com RetroArch.
+          Para tela cheia, pressione F no teclado. O menu Settings > Input permite conferir/alterar controles.
+
+          O aplicativo Android original nao roda nativamente no Windows; este pacote usa RetroArch
+          como frontend Windows com o mesmo core Genesis Plus GX. A interface e os controles na tela
+          do Android nao sao incluidos nesta versao para PC.
+          '@ | Set-Content (Join-Path $installDir 'LEIA-ME.txt') -Encoding UTF8
+          $testExe = Get-Item $retroArchExe.FullName
+          $testCore = Get-Item (Join-Path $coreDir 'genesis_plus_gx_libretro.dll')
+          if ($testExe.Length -lt 1MB -or $testCore.Length -lt 100KB) { throw 'Verificacao de integridade do executavel/core falhou.' }
+          $out = Join-Path $env:RUNNER_TEMP 'MegaDriveSolo-Windows-x64.zip'
+          Compress-Archive -Path (Join-Path $installDir '*') -DestinationPath $out -CompressionLevel Optimal
+          Get-Item $out | Format-List FullName,Length
+          "PACKAGE_PATH=$out" | Out-File $env:GITHUB_ENV -Append
+      - name: Upload Windows portable package
+        uses: actions/upload-artifact@v4
+        with:
+          name: MegaDriveSolo-Windows-x64
+          path: ${{ runner.temp }}/MegaDriveSolo-Windows-x64.zip
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish Windows package
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag = 'windows-v1.0.0'
+          gh release view $tag 2>$null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create $tag "$env:PACKAGE_PATH" --title 'Mega Drive Solo para Windows v1.0.0' --notes 'Pacote portátil x64 com RetroArch estável e Genesis Plus GX. Não inclui ROMs nem BIOS.'
+          } else {
+            gh release upload $tag "$env:PACKAGE_PATH" --clobber
+          }
