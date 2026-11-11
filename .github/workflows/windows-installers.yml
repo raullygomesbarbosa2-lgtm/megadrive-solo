@@ -64,7 +64,8 @@ jobs:
             if ((Get-Item $exe.FullName).Length -lt 1MB -or (Get-Item (Join-Path $coreDir 'genesis_plus_gx_libretro.dll')).Length -lt 100KB) { throw "Verificação de tamanho falhou: $($item.Label)." }
             $iss = Join-Path $work ("setup-{0}.iss" -f $item.Name)
             $defaultDir = "{autopf}\Mega Drive Solo ($($item.Label))"
-            $appId = "{{8D46B97D-7F25-4F09-9F35-3A94F18D$($item.Name)}}"
+            $appId = if ($item.Name -eq 'x64') { '{8D46B97D-7F25-4F09-9F35-3A94F18D3202}' } else { '{8D46B97D-7F25-4F09-9F35-3A94F18D3201}' }
+            $archModeLine = if ($item.Name -eq 'x64') { 'ArchitecturesInstallIn64BitMode=x64' } else { '' }
             $issText = @"
           [Setup]
           AppId=$appId
@@ -75,7 +76,7 @@ jobs:
           DefaultGroupName=Mega Drive Solo ($($item.Label))
           OutputDir=$work
           OutputBaseFilename=MegaDriveSolo-Windows-$($item.Name)-Setup
-          ArchitecturesInstallIn64BitMode=$($item.Arch)
+          $archModeLine
           ArchitecturesAllowed=$($item.Arch)
           Compression=lzma2
           SolidCompression=yes
@@ -98,8 +99,9 @@ jobs:
           Filename: "{app}\retroarch.exe"; Description: "Abrir Mega Drive Solo"; Flags: postinstall nowait skipifsilent
           "@
             Set-Content -Path $iss -Value $issText -Encoding UTF8
+            Write-Host "Compilando setup $($item.Label) com $iscc usando $iss"
             & $iscc $iss
-            if ($LASTEXITCODE -ne 0) { throw "Falha compilando instalador $($item.Label)." }
+            if ($LASTEXITCODE -ne 0) { throw "Falha compilando instalador $($item.Label), ISCC exit $LASTEXITCODE. Veja a saída detalhada acima." }
             $installer = Join-Path $work ("MegaDriveSolo-Windows-{0}-Setup.exe" -f $item.Name)
             if (-not (Test-Path $installer) -or (Get-Item $installer).Length -lt 50MB) { throw "Instalador incompleto para $($item.Label)." }
             $testDir = Join-Path $work ("test-install-{0}" -f $item.Name)
