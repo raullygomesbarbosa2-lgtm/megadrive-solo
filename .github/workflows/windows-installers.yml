@@ -64,7 +64,7 @@ jobs:
             if ((Get-Item $exe.FullName).Length -lt 1MB -or (Get-Item (Join-Path $coreDir 'genesis_plus_gx_libretro.dll')).Length -lt 100KB) { throw "Verificação de tamanho falhou: $($item.Label)." }
             $iss = Join-Path $work ("setup-{0}.iss" -f $item.Name)
             $defaultDir = "{autopf}\Mega Drive Solo ($($item.Label))"
-            $appId = if ($item.Name -eq 'x64') { '{8D46B97D-7F25-4F09-9F35-3A94F18D3202}' } else { '{8D46B97D-7F25-4F09-9F35-3A94F18D3201}' }
+            $appId = if ($item.Name -eq 'x64') { '{{8D46B97D-7F25-4F09-9F35-3A94F18D3202}}' } else { '{{8D46B97D-7F25-4F09-9F35-3A94F18D3201}}' }
             $archModeLine = if ($item.Name -eq 'x64') { 'ArchitecturesInstallIn64BitMode=x64' } else { '' }
             $issText = @"
           [Setup]
