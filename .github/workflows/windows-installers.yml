@@ -1,0 +1,119 @@
+name: Build Windows Server installers x86 and x64
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows-installers:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install archive and setup compiler tools
+        shell: pwsh
+        run: |
+          choco install 7zip innosetup -y --no-progress
+          if ($LASTEXITCODE -ne 0) { throw 'Falha ao instalar ferramentas de empacotamento.' }
+      - name: Download, package and test 32-bit and 64-bit installers
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $sevenZip = 'C:\Program Files\7-Zip\7z.exe'
+          $iscc = 'C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if (-not (Test-Path $sevenZip)) { $sevenZip = 'C:\Program Files\7-Zip\7z.exe' }
+          if (-not (Test-Path $iscc)) { throw 'Inno Setup Compiler não foi encontrado.' }
+          $work = Join-Path $env:RUNNER_TEMP 'mds-build'
+          New-Item -ItemType Directory -Force -Path $work | Out-Null
+          $version = '1.1.0'
+          $architectures = @(
+            @{ Name='x86'; Label='32bit'; Arch='x86'; Retro='https://buildbot.libretro.com/stable/1.22.2/windows/x86/RetroArch.7z'; Core='https://buildbot.libretro.com/nightly/windows/x86/latest/genesis_plus_gx_libretro.dll.zip' },
+            @{ Name='x64'; Label='64bit'; Arch='x64'; Retro='https://buildbot.libretro.com/stable/1.22.2/windows/x86_64/RetroArch.7z'; Core='https://buildbot.libretro.com/nightly/windows/x86_64/latest/genesis_plus_gx_libretro.dll.zip' }
+          )
+          foreach ($item in $architectures) {
+            $dest = Join-Path $work $item.Name
+            New-Item -ItemType Directory -Force -Path $dest | Out-Null
+            $retroArchive = Join-Path $work ("RetroArch-{0}.7z" -f $item.Name)
+            $coreArchive = Join-Path $work ("GenesisPlusGX-{0}.zip" -f $item.Name)
+            Invoke-WebRequest $item.Retro -OutFile $retroArchive
+            & $sevenZip x $retroArchive "-o$dest" -y | Out-Null
+            if ($LASTEXITCODE -ne 0) { throw "Falha extraindo RetroArch $($item.Label)." }
+            $exe = Get-ChildItem $dest -Filter retroarch.exe -Recurse | Select-Object -First 1
+            if (-not $exe) { throw "retroarch.exe $($item.Label) não encontrado." }
+            $installDir = $exe.Directory.FullName
+            Invoke-WebRequest $item.Core -OutFile $coreArchive
+            $coreExtract = Join-Path $work ("core-{0}" -f $item.Name)
+            Expand-Archive $coreArchive $coreExtract -Force
+            $coreDll = Get-ChildItem $coreExtract -Filter genesis_plus_gx_libretro.dll -Recurse | Select-Object -First 1
+            if (-not $coreDll) { throw "Core Genesis Plus GX $($item.Label) não encontrado." }
+            $coreDir = Join-Path $installDir 'cores'
+            New-Item -ItemType Directory -Force -Path $coreDir | Out-Null
+            Copy-Item $coreDll.FullName (Join-Path $coreDir 'genesis_plus_gx_libretro.dll') -Force
+            New-Item -ItemType Directory -Force -Path (Join-Path $installDir 'games'),(Join-Path $installDir 'saves') | Out-Null
+            @'
+          @echo off
+          cd /d "%~dp0"
+          start "Mega Drive Solo" retroarch.exe
+          '@ | Set-Content (Join-Path $installDir 'Abrir-Mega-Drive-Solo.cmd') -Encoding ASCII
+            @'
+          MEGA DRIVE SOLO PARA WINDOWS
+          Inclui RetroArch e Genesis Plus GX. Nao inclui ROMs nem BIOS.
+          Execute Abrir-Mega-Drive-Solo.cmd ou use o atalho do Menu Iniciar.
+          No RetroArch, escolha Load Content para abrir uma ROM sua.
+          F alterna tela cheia. Configure teclado/controle em Settings > Input.
+          Use apenas ROMs obtidas legalmente.
+          '@ | Set-Content (Join-Path $installDir 'LEIA-ME.txt') -Encoding UTF8
+            if ((Get-Item $exe.FullName).Length -lt 1MB -or (Get-Item (Join-Path $coreDir 'genesis_plus_gx_libretro.dll')).Length -lt 100KB) { throw "Verificação de tamanho falhou: $($item.Label)." }
+            $iss = Join-Path $work ("setup-{0}.iss" -f $item.Name)
+            $defaultDir = "{autopf}\Mega Drive Solo ($($item.Label))"
+            $appId = "{{8D46B97D-7F25-4F09-9F35-3A94F18D$($item.Name)}}"
+            $issText = @"
+          [Setup]
+          AppId=$appId
+          AppName=Mega Drive Solo ($($item.Label))
+          AppVersion=$version
+          AppPublisher=Raully Gomes Barbosa
+          DefaultDirName=$defaultDir
+          DefaultGroupName=Mega Drive Solo ($($item.Label))
+          OutputDir=$work
+          OutputBaseFilename=MegaDriveSolo-Windows-$($item.Name)-Setup
+          ArchitecturesInstallIn64BitMode=$($item.Arch)
+          ArchitecturesAllowed=$($item.Arch)
+          Compression=lzma2
+          SolidCompression=yes
+          WizardStyle=modern
+          Uninstallable=yes
+          PrivilegesRequired=admin
+          
+          [Files]
+          Source: "$installDir\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+          
+          [Icons]
+          Name: "{group}\Mega Drive Solo"; Filename: "{app}\retroarch.exe"; WorkingDir: "{app}"
+          Name: "{group}\Abrir jogo (seletor)"; Filename: "{app}\Abrir-Mega-Drive-Solo.cmd"; WorkingDir: "{app}"
+          Name: "{autodesktop}\Mega Drive Solo"; Filename: "{app}\retroarch.exe"; WorkingDir: "{app}"; Tasks: desktopicon
+          
+          [Tasks]
+          Name: "desktopicon"; Description: "Criar atalho na area de trabalho"; GroupDescription: "Atalhos:"
+          
+          [Run]
+          Filename: "{app}\retroarch.exe"; Description: "Abrir Mega Drive Solo"; Flags: postinstall nowait skipifsilent
+          "@
+            Set-Content -Path $iss -Value $issText -Encoding UTF8
+            & $iscc $iss
+            if ($LASTEXITCODE -ne 0) { throw "Falha compilando instalador $($item.Label)." }
+            $installer = Join-Path $work ("MegaDriveSolo-Windows-{0}-Setup.exe" -f $item.Name)
+            if (-not (Test-Path $installer) -or (Get-Item $installer).Length -lt 50MB) { throw "Instalador incompleto para $($item.Label)." }
+            $testDir = Join-Path $work ("test-install-{0}" -f $item.Name)
+            $proc = Start-Process -FilePath $installer -ArgumentList @('/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART',"/DIR=$testDir") -Wait -PassThru
+            if ($proc.ExitCode -ne 0) { throw "Instalação de teste falhou ($($item.Label)); código $($proc.ExitCode)." }
+            if (-not (Test-Path (Join-Path $testDir 'retroarch.exe')) -or -not (Test-Path (Join-Path $testDir 'cores\genesis_plus_gx_libretro.dll'))) { throw "Verificação pós-instalação falhou ($($item.Label))." }
+            Write-Host "Instalador $($item.Label) compilado e instalação silenciosa conferida."
+          }
+          "INSTALLER_X86=$work\MegaDriveSolo-Windows-x86-Setup.exe" | Out-File $env:GITHUB_ENV -Append
+          "INSTALLER_X64=$work\MegaDriveSolo-Windows-x64-Setup.exe" | Out-File $env:GITHUB_ENV -Append
+      - name: Publish Windows Server installers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag = 'windows-v1.1.0'
+          gh release create $tag "$env:INSTALLER_X86" "$env:INSTALLER_X64" --title 'Mega Drive Solo para Windows Server v1.1.0' --notes 'Instaladores x86 e x64. Cada setup inclui RetroArch e Genesis Plus GX na arquitetura correspondente. ROMs e BIOS não incluídas. Testados por instalação silenciosa no runner Windows; a execução em cada edição específica do Windows Server ainda depende do sistema do usuário.'
