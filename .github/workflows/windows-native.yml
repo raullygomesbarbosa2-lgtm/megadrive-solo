@@ -92,4 +92,7 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release create windows-native-v2.0.0 dist/MegaDriveSolo-Windows-32bit.zip dist/MegaDriveSolo-Windows-64bit.zip --title 'Mega Drive Solo nativo para Windows v2.0.0' --notes 'Aplicativo Windows nativo, sem RetroArch. Inclui downloads independentes para 32 e 64 bits; ROMs e BIOS não incluídas.'
+          $tag='windows-native-v2.0.0'
+          gh release view $tag 2>$null
+          if($LASTEXITCODE -eq 0){ gh release upload $tag dist/MegaDriveSolo-Windows-32bit.zip dist/MegaDriveSolo-Windows-64bit.zip --clobber }
+          else { gh release create $tag dist/MegaDriveSolo-Windows-32bit.zip dist/MegaDriveSolo-Windows-64bit.zip --title 'Mega Drive Solo nativo para Windows v2.0.0' --notes 'Aplicativo Windows nativo, sem RetroArch. Inclui downloads independentes para 32 e 64 bits; ROMs e BIOS não incluídas.' }
