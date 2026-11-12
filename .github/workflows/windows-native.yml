@@ -36,6 +36,11 @@ jobs:
           New-Item -ItemType Directory -Force -Path $out | Out-Null
           Copy-Item $dll.FullName (Join-Path $out 'genesis_plus_gx_libretro.dll') -Force
           "CORE_PATH=$out\genesis_plus_gx_libretro.dll" | Out-File $env:GITHUB_ENV -Append
+      - name: Install Inno Setup
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+          if($LASTEXITCODE -ne 0){throw 'Inno Setup install failed'}
       - name: Publish single-file native Windows executable
         shell: pwsh
         run: |
@@ -56,11 +61,57 @@ jobs:
           $expected=if($rid -eq 'win-x64'){0x8664}else{0x014c}
           $stream=[IO.File]::OpenRead($exe); $reader=[IO.BinaryReader]::new($stream); $stream.Position=0x3c; $pe=$reader.ReadInt32(); $stream.Position=$pe+4; $machine=$reader.ReadUInt16(); $stream.Dispose()
           if($machine -ne $expected){throw "Wrong EXE architecture: $machine"}
-      - name: Upload standalone Windows executable
+          $iscc='C:\Program Files (x86)\Inno Setup 6\ISCC.exe'
+          if(-not (Test-Path $iscc)){throw 'Inno Setup Compiler missing'}
+          $setupScript=Join-Path $env:RUNNER_TEMP 'MegaDriveSoloSetup.iss'
+          $defaultDir=if($rid -eq 'win-x64'){'{autopf}\Mega Drive Solo'}else{'{autopf32}\Mega Drive Solo'}
+          $archMode=if($rid -eq 'win-x64'){'ArchitecturesInstallIn64BitMode=x64'}else{''}
+          $appId=if($rid -eq 'win-x64'){'{{9E77B9EA-0F5E-4B12-A01A-55AA12F20064}}'}else{'{{9E77B9EA-0F5E-4B12-A01A-55AA12F20032}}'}
+          $iss=@"
+          [Setup]
+          AppId=$appId
+          AppName=Mega Drive Solo
+          AppVersion=2.2.0
+          AppPublisher=Raully Gomes Barbosa
+          DefaultDirName=$defaultDir
+          DefaultGroupName=Mega Drive Solo
+          OutputDir=$env:RUNNER_TEMP
+          OutputBaseFilename=MegaDriveSolo-Windows-${{ matrix.label }}-Setup
+          $archMode
+          ArchitecturesAllowed=$rid
+          Compression=lzma2
+          SolidCompression=yes
+          WizardStyle=modern
+          Uninstallable=yes
+          PrivilegesRequired=lowest
+          
+          [Files]
+          Source: "$exe"; DestDir: "{app}"; Flags: ignoreversion
+          
+          [Icons]
+          Name: "{group}\Mega Drive Solo"; Filename: "{app}\$exeName"; WorkingDir: "{app}"
+          Name: "{autodesktop}\Mega Drive Solo"; Filename: "{app}\$exeName"; WorkingDir: "{app}"; Tasks: desktopicon
+          
+          [Tasks]
+          Name: "desktopicon"; Description: "Criar atalho na area de trabalho"; GroupDescription: "Atalhos:"
+          
+          [Run]
+          Filename: "{app}\$exeName"; Description: "Abrir Mega Drive Solo"; Flags: postinstall nowait skipifsilent
+          "@
+          Set-Content $setupScript $iss -Encoding UTF8
+          & $iscc $setupScript
+          if($LASTEXITCODE -ne 0){throw 'Inno Setup compilation failed'}
+          $setup=Join-Path $env:RUNNER_TEMP "MegaDriveSolo-Windows-${{ matrix.label }}-Setup.exe"
+          if(-not (Test-Path $setup) -or (Get-Item $setup).Length -lt 50MB){throw 'Setup EXE was not created or is incomplete'}
+          $archive=Join-Path $env:RUNNER_TEMP "MegaDriveSolo-Windows-${{ matrix.label }}-Setup.zip"
+          Compress-Archive -Path $setup -DestinationPath $archive -CompressionLevel Optimal
+          "SETUP_PATH=$setup" | Out-File $env:GITHUB_ENV -Append
+          "SETUP_ZIP=$archive" | Out-File $env:GITHUB_ENV -Append
+      - name: Upload standalone setup installer
         uses: actions/upload-artifact@v4
         with:
-          name: MegaDriveSolo-Windows-${{ matrix.label }}
-          path: ${{ runner.temp }}/MegaDriveSolo-Windows-${{ matrix.label }}.exe
+          name: MegaDriveSolo-Windows-${{ matrix.label }}-Setup
+          path: ${{ runner.temp }}/MegaDriveSolo-Windows-${{ matrix.label }}-Setup.zip
           if-no-files-found: error
           retention-days: 30
   release:
@@ -71,13 +122,13 @@ jobs:
       - name: Download both standalone Windows executables
         uses: actions/download-artifact@v4
         with:
-          pattern: MegaDriveSolo-Windows-*
+          pattern: MegaDriveSolo-Windows-*-Setup
           path: dist
           merge-multiple: true
-      - name: Publish standalone x86 and x64 EXE files
+      - name: Publish x86 and x64 Setup installers
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $tag='windows-native-v2.1.0'
-          gh release create $tag dist/MegaDriveSolo-Windows-32bit.exe dist/MegaDriveSolo-Windows-64bit.exe --title 'Mega Drive Solo nativo para Windows v2.1.0' --notes 'Executáveis únicos do Mega Drive Solo nativo, sem RetroArch. Inclui 32 bits e 64 bits, com núcleo Genesis Plus GX embutido. ROMs e BIOS não incluídas.'
+          $tag='windows-setup-native-v1.0.0'
+          gh release create $tag dist/MegaDriveSolo-Windows-32bit-Setup.zip dist/MegaDriveSolo-Windows-64bit-Setup.zip --title 'Mega Drive Solo Setup para Windows v1.0.0' --notes 'Instaladores Setup nativos do Mega Drive Solo, cada um em um .exe direto. Baixe o ZIP correspondente à arquitetura, extraia somente o instalador e execute-o. Sem RetroArch. O próprio setup instala o programa e cria atalhos; ROMs e BIOS não incluídas.'
