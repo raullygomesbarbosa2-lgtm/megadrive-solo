@@ -66,6 +66,7 @@ jobs:
           $setupScript=Join-Path $env:RUNNER_TEMP 'MegaDriveSoloSetup.iss'
           $defaultDir=if($rid -eq 'win-x64'){'{autopf}\Mega Drive Solo'}else{'{autopf32}\Mega Drive Solo'}
           $archMode=if($rid -eq 'win-x64'){'ArchitecturesInstallIn64BitMode=x64'}else{''}
+          $archAllowed=if($rid -eq 'win-x64'){'x64'}else{'x86'}
           $appId=if($rid -eq 'win-x64'){'{{9E77B9EA-0F5E-4B12-A01A-55AA12F20064}}'}else{'{{9E77B9EA-0F5E-4B12-A01A-55AA12F20032}}'}
           $iss=@"
           [Setup]
@@ -78,7 +79,7 @@ jobs:
           OutputDir=$env:RUNNER_TEMP
           OutputBaseFilename=MegaDriveSolo-Windows-${{ matrix.label }}-Setup
           $archMode
-          ArchitecturesAllowed=$rid
+          ArchitecturesAllowed=$archAllowed
           Compression=lzma2
           SolidCompression=yes
           WizardStyle=modern
