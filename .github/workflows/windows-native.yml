@@ -42,39 +42,25 @@ jobs:
           $ErrorActionPreference='Stop'
           $out=Join-Path $env:RUNNER_TEMP 'publish'
           New-Item -ItemType Directory -Force -Path $out | Out-Null
-          dotnet publish windows/MegaDriveSolo.csproj -c Release -r ${{ matrix.rid }} --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o $out
+          dotnet publish windows/MegaDriveSolo.csproj -c Release -r ${{ matrix.rid }} --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -p:CorePath=$env:CORE_PATH -o $out
           if($LASTEXITCODE -ne 0){throw 'dotnet publish failed'}
           $exe=Get-ChildItem $out -Filter MegaDriveSolo.exe | Select-Object -First 1
           if(-not $exe){throw 'MegaDriveSolo.exe missing after publish'}
-          New-Item -ItemType Directory -Force -Path (Join-Path $out 'cores') | Out-Null
-          Copy-Item $env:CORE_PATH (Join-Path $out 'cores\genesis_plus_gx_libretro.dll') -Force
-          @'
-          MEGA DRIVE SOLO PARA WINDOWS
-
-          Aplicativo Windows nativo Mega Drive Solo com Genesis Plus GX embutido como core.
-          Não inclui ROMs nem BIOS; selecione um jogo seu usando ABRIR JOGO.
-
-          Teclado: setas para direções; Z/X/C para B/A/C; A/S/D para X/Y/Z;
-          Enter para Start; Backspace para Select; F11 alterna tela cheia.
-          Controle USB/Bluetooth XInput compatível.
-
-          Distribuição 32 ou 64 bits conforme o arquivo. Nenhum RetroArch é necessário.
-          '@ | Set-Content (Join-Path $out 'LEIA-ME.txt') -Encoding UTF8
-          $exe=Join-Path $out 'MegaDriveSolo.exe'
-          if(-not (Test-Path $exe)){throw 'MegaDriveSolo.exe missing'}
-          if((Get-Item $env:CORE_PATH).Length -lt 100KB){throw 'core DLL too small'}
+          $builtExe=Get-ChildItem $out -Filter MegaDriveSolo.exe | Select-Object -First 1
+          if(-not $builtExe){throw 'MegaDriveSolo.exe missing'}
+          $exeName='MegaDriveSolo-Windows-${{ matrix.label }}.exe'
+          $exe=Join-Path $env:RUNNER_TEMP $exeName
+          Copy-Item $builtExe.FullName $exe -Force
+          if((Get-Item $env:CORE_PATH).Length -lt 100KB){throw 'embedded core DLL too small'}
           $rid='${{ matrix.rid }}'
           $expected=if($rid -eq 'win-x64'){0x8664}else{0x014c}
           $stream=[IO.File]::OpenRead($exe); $reader=[IO.BinaryReader]::new($stream); $stream.Position=0x3c; $pe=$reader.ReadInt32(); $stream.Position=$pe+4; $machine=$reader.ReadUInt16(); $stream.Dispose()
           if($machine -ne $expected){throw "Wrong EXE architecture: $machine"}
-          $archive=Join-Path $env:RUNNER_TEMP ('MegaDriveSolo-Windows-${{ matrix.label }}.zip')
-          Compress-Archive -Path (Join-Path $out '*') -DestinationPath $archive -CompressionLevel Optimal
-          "DIST_PATH=$archive" | Out-File $env:GITHUB_ENV -Append
-      - name: Upload Windows native app
+      - name: Upload standalone Windows executable
         uses: actions/upload-artifact@v4
         with:
           name: MegaDriveSolo-Windows-${{ matrix.label }}
-          path: ${{ runner.temp }}/MegaDriveSolo-Windows-${{ matrix.label }}.zip
+          path: ${{ runner.temp }}/MegaDriveSolo-Windows-${{ matrix.label }}.exe
           if-no-files-found: error
           retention-days: 30
   release:
@@ -82,18 +68,16 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Download both native Windows builds
+      - name: Download both standalone Windows executables
         uses: actions/download-artifact@v4
         with:
           pattern: MegaDriveSolo-Windows-*
           path: dist
           merge-multiple: true
-      - name: Publish x86 and x64 executables
+      - name: Publish standalone x86 and x64 EXE files
         env:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $tag='windows-native-v2.0.0'
-          gh release view $tag 2>$null
-          if($LASTEXITCODE -eq 0){ gh release upload $tag dist/MegaDriveSolo-Windows-32bit.zip dist/MegaDriveSolo-Windows-64bit.zip --clobber }
-          else { gh release create $tag dist/MegaDriveSolo-Windows-32bit.zip dist/MegaDriveSolo-Windows-64bit.zip --title 'Mega Drive Solo nativo para Windows v2.0.0' --notes 'Aplicativo Windows nativo, sem RetroArch. Inclui downloads independentes para 32 e 64 bits; ROMs e BIOS não incluídas.' }
+          $tag='windows-native-v2.1.0'
+          gh release create $tag dist/MegaDriveSolo-Windows-32bit.exe dist/MegaDriveSolo-Windows-64bit.exe --title 'Mega Drive Solo nativo para Windows v2.1.0' --notes 'Executáveis únicos do Mega Drive Solo nativo, sem RetroArch. Inclui 32 bits e 64 bits, com núcleo Genesis Plus GX embutido. ROMs e BIOS não incluídas.'
