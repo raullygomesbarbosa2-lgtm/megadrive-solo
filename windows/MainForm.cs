@@ -81,7 +81,6 @@ public sealed class MainForm : Form
                 embeddedCore.CopyTo(output);
             }
             core = LoadLibrary(dll); if (core == IntPtr.Zero) throw new InvalidOperationException("O Windows não carregou o núcleo embutido Genesis Plus GX: " + Marshal.GetLastWin32Error());
-            core = LoadLibrary(dll); if (core == IntPtr.Zero) throw new InvalidOperationException("O Windows não carregou Genesis Plus GX.");
             setVideoCallback(videoCallback); setAudioCallback(audioCallback); setAudioBatchCallback(audioBatchCallback); setInputPollCallback(inputPollCallback); setInputStateCallback(inputStateCallback);
             setEnvironmentCallback(environmentCallback); initCallback(); initialized = true;
             setControllerCallback(0, (2u << 8) | 1u);
