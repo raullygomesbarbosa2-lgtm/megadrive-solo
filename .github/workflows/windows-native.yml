@@ -104,15 +104,12 @@ jobs:
           if($LASTEXITCODE -ne 0){throw 'Inno Setup compilation failed'}
           $setup=Join-Path $env:RUNNER_TEMP "MegaDriveSolo-Windows-${{ matrix.label }}-Setup.exe"
           if(-not (Test-Path $setup) -or (Get-Item $setup).Length -lt 50MB){throw 'Setup EXE was not created or is incomplete'}
-          $archive=Join-Path $env:RUNNER_TEMP "MegaDriveSolo-Windows-${{ matrix.label }}-Setup.zip"
-          Compress-Archive -Path $setup -DestinationPath $archive -CompressionLevel Optimal
           "SETUP_PATH=$setup" | Out-File $env:GITHUB_ENV -Append
-          "SETUP_ZIP=$archive" | Out-File $env:GITHUB_ENV -Append
       - name: Upload standalone setup installer
         uses: actions/upload-artifact@v4
         with:
           name: MegaDriveSolo-Windows-${{ matrix.label }}-Setup
-          path: ${{ runner.temp }}/MegaDriveSolo-Windows-${{ matrix.label }}-Setup.zip
+          path: ${{ runner.temp }}/MegaDriveSolo-Windows-${{ matrix.label }}-Setup.exe
           if-no-files-found: error
           retention-days: 30
   release:
@@ -131,5 +128,5 @@ jobs:
           GH_TOKEN: ${{ github.token }}
         shell: pwsh
         run: |
-          $tag='windows-setup-native-v1.0.0'
-          gh release create $tag dist/MegaDriveSolo-Windows-32bit-Setup.zip dist/MegaDriveSolo-Windows-64bit-Setup.zip --title 'Mega Drive Solo Setup para Windows v1.0.0' --notes 'Instaladores Setup nativos do Mega Drive Solo, cada um em um .exe direto. Baixe o ZIP correspondente à arquitetura, extraia somente o instalador e execute-o. Sem RetroArch. O próprio setup instala o programa e cria atalhos; ROMs e BIOS não incluídas.'
+          $tag='windows-setup-native-v1.0.1'
+          gh release create $tag dist/MegaDriveSolo-Windows-32bit-Setup.exe dist/MegaDriveSolo-Windows-64bit-Setup.exe --title 'Mega Drive Solo Setup para Windows v1.0.1' --notes 'Instaladores Setup nativos do Mega Drive Solo em executáveis .exe diretos, x86 32 bits e x64 64 bits. Baixe e execute o setup da arquitetura correspondente; sem ZIP e sem RetroArch. ROMs e BIOS não incluídas.'
