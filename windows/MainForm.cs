@@ -18,7 +18,7 @@ public sealed class MainForm : Form
 
     readonly Panel screen = new() { Dock = DockStyle.Fill, BackColor = Color.Black };
     Label hint = new() { Dock = DockStyle.Fill, TextAlign = ContentAlignment.MiddleCenter, ForeColor = Color.FromArgb(120, 235, 255), Font = new Font("Segoe UI", 19, FontStyle.Bold), Text = "MEGA DRIVE SOLO\r\n\r\nEscolha uma ROM sua para jogar" };
-    readonly Timer frameTimer = new() { Interval = 16 };
+    readonly System.Windows.Forms.Timer frameTimer = new() { Interval = 16 };
     readonly bool[] keyboard = new bool[16];
     WaveOutAudio? audio;
     readonly retro_video_refresh_t videoCallback;
