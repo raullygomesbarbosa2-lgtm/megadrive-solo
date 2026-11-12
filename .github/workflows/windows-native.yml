@@ -1,0 +1,87 @@
+name: Build native Mega Drive Solo for Windows
+on:
+  workflow_dispatch:
+permissions:
+  contents: write
+jobs:
+  windows:
+    runs-on: windows-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - rid: win-x86
+            label: 32bit
+            core: https://buildbot.libretro.com/nightly/windows/x86/latest/genesis_plus_gx_libretro.dll.zip
+          - rid: win-x64
+            label: 64bit
+            core: https://buildbot.libretro.com/nightly/windows/x86_64/latest/genesis_plus_gx_libretro.dll.zip
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+      - name: Download Genesis Plus GX for this architecture
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $tmp=Join-Path $env:RUNNER_TEMP 'mdcore'
+          New-Item -ItemType Directory -Force -Path $tmp | Out-Null
+          $zip=Join-Path $tmp 'core.zip'
+          Invoke-WebRequest '${{ matrix.core }}' -OutFile $zip
+          Expand-Archive $zip (Join-Path $tmp 'extracted') -Force
+          $dll=Get-ChildItem (Join-Path $tmp 'extracted') -Filter genesis_plus_gx_libretro.dll -Recurse | Select-Object -First 1
+          if(-not $dll){throw 'Genesis Plus GX DLL was not found.'}
+          $out=Join-Path $env:RUNNER_TEMP 'core'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          Copy-Item $dll.FullName (Join-Path $out 'genesis_plus_gx_libretro.dll') -Force
+          "CORE_PATH=$out\genesis_plus_gx_libretro.dll" | Out-File $env:GITHUB_ENV -Append
+      - name: Publish single-file native Windows executable
+        shell: pwsh
+        run: |
+          $ErrorActionPreference='Stop'
+          $out=Join-Path $env:RUNNER_TEMP 'publish'
+          New-Item -ItemType Directory -Force -Path $out | Out-Null
+          dotnet publish windows/MegaDriveSolo.csproj -c Release -r ${{ matrix.rid }} --self-contained true -p:PublishSingleFile=true -p:IncludeNativeLibrariesForSelfExtract=true -p:EnableCompressionInSingleFile=true -o $out
+          if($LASTEXITCODE -ne 0){throw 'dotnet publish failed'}
+          $exe=Get-ChildItem $out -Filter MegaDriveSolo.exe | Select-Object -First 1
+          if(-not $exe){throw 'MegaDriveSolo.exe missing after publish'}
+          New-Item -ItemType Directory -Force -Path (Join-Path $out 'cores') | Out-Null
+          Copy-Item $env:CORE_PATH (Join-Path $out 'cores\genesis_plus_gx_libretro.dll') -Force
+          @'
+          MEGA DRIVE SOLO PARA WINDOWS
+
+          Aplicativo Windows nativo Mega Drive Solo com Genesis Plus GX embutido como core.
+          Não inclui ROMs nem BIOS; selecione um jogo seu usando ABRIR JOGO.
+
+          Teclado: setas para direções; Z/X/C para B/A/C; A/S/D para X/Y/Z;
+          Enter para Start; Backspace para Select; F11 alterna tela cheia.
+          Controle USB/Bluetooth XInput compatível.
+
+          Distribuição 32 ou 64 bits conforme o arquivo. Nenhum RetroArch é necessário.
+          '@ | Set-Content (Join-Path $out 'LEIA-ME.txt') -Encoding UTF8
+          $exe=Join-Path $out 'MegaDriveSolo.exe'
+          if(-not (Test-Path $exe)){throw 'MegaDriveSolo.exe missing'}
+          if((Get-Item $env:CORE_PATH).Length -lt 100KB){throw 'core DLL too small'}
+          $rid='${{ matrix.rid }}'
+          $expected=if($rid -eq 'win-x64'){0x8664}else{0x014c}
+          $stream=[IO.File]::OpenRead($exe); $reader=[IO.BinaryReader]::new($stream); $stream.Position=0x3c; $pe=$reader.ReadInt32(); $stream.Position=$pe+4; $machine=$reader.ReadUInt16(); $stream.Dispose()
+          if($machine -ne $expected){throw "Wrong EXE architecture: $machine"}
+          $archive=Join-Path $env:RUNNER_TEMP ('MegaDriveSolo-Windows-${{ matrix.label }}.zip')
+          Compress-Archive -Path (Join-Path $out '*') -DestinationPath $archive -CompressionLevel Optimal
+          "DIST_PATH=$archive" | Out-File $env:GITHUB_ENV -Append
+      - name: Upload Windows native app
+        uses: actions/upload-artifact@v4
+        with:
+          name: MegaDriveSolo-Windows-${{ matrix.label }}
+          path: ${{ runner.temp }}/MegaDriveSolo-Windows-${{ matrix.label }}.zip
+          if-no-files-found: error
+          retention-days: 30
+      - name: Publish release files
+        if: matrix.rid == 'win-x64'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: pwsh
+        run: |
+          $tag='windows-native-v2.0.0'
+          gh release create $tag "$env:DIST_PATH" --title 'Mega Drive Solo nativo para Windows v2.0.0' --notes 'Aplicativo Windows nativo, sem RetroArch; distribuição 64 bits. ROMs e BIOS não incluídas.'
