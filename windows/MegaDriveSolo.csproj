@@ -9,6 +9,7 @@
     <AssemblyName>MegaDriveSolo</AssemblyName>
     <RootNamespace>MegaDriveSolo</RootNamespace>
     <ApplicationManifest>app.manifest</ApplicationManifest>
-    <Version>2.0.0</Version>
+    <Version>2.1.0</Version>
+    <EmbeddedResource Include="$(CorePath)" LogicalName="MegaDriveSolo.genesis_plus_gx_libretro.dll" Condition="'$(CorePath)' != '' and Exists('$(CorePath)' )" />
   </PropertyGroup>
 </Project>
