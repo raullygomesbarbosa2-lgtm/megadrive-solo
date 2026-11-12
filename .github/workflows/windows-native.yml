@@ -77,11 +77,18 @@ jobs:
           path: ${{ runner.temp }}/MegaDriveSolo-Windows-${{ matrix.label }}.zip
           if-no-files-found: error
           retention-days: 30
-      - name: Publish release files
-        if: matrix.rid == 'win-x64'
+  release:
+    needs: windows
+    runs-on: ubuntu-latest
+    steps:
+      - name: Download both native Windows builds
+        uses: actions/download-artifact@v4
+        with:
+          pattern: MegaDriveSolo-Windows-*
+          path: dist
+          merge-multiple: true
+      - name: Publish x86 and x64 executables
         env:
           GH_TOKEN: ${{ github.token }}
-        shell: pwsh
         run: |
-          $tag='windows-native-v2.0.0'
-          gh release create $tag "$env:DIST_PATH" --title 'Mega Drive Solo nativo para Windows v2.0.0' --notes 'Aplicativo Windows nativo, sem RetroArch; distribuição 64 bits. ROMs e BIOS não incluídas.'
+          gh release create windows-native-v2.0.0 dist/MegaDriveSolo-Windows-32bit.zip dist/MegaDriveSolo-Windows-64bit.zip --title 'Mega Drive Solo nativo para Windows v2.0.0' --notes 'Aplicativo Windows nativo, sem RetroArch. Inclui downloads independentes para 32 e 64 bits; ROMs e BIOS não incluídas.'
