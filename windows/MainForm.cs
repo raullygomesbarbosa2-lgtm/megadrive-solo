@@ -70,9 +70,17 @@ public sealed class MainForm : Form
     {
         try
         {
-            string dll = Path.Combine(AppContext.BaseDirectory, "cores", "genesis_plus_gx_libretro.dll");
-            if (!File.Exists(dll)) { hint.Text = "O núcleo Genesis Plus GX não foi encontrado. Reinstale o Mega Drive Solo."; return; }
-            core = LoadLibrary(dll); if (core == IntPtr.Zero) throw new InvalidOperationException("O Windows não carregou Genesis Plus GX: " + Marshal.GetLastWin32Error());
+            string architecture = Environment.Is64BitProcess ? "x64" : "x86";
+            string coreDir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "MegaDriveSolo", "cores-" + architecture);
+            Directory.CreateDirectory(coreDir);
+            string dll = Path.Combine(coreDir, "genesis_plus_gx_libretro.dll");
+            using (var embeddedCore = typeof(MainForm).Assembly.GetManifestResourceStream("MegaDriveSolo.genesis_plus_gx_libretro.dll"))
+            {
+                if (embeddedCore == null) throw new InvalidOperationException("O núcleo Genesis Plus GX não veio embutido neste executável.");
+                using var output = File.Create(dll);
+                embeddedCore.CopyTo(output);
+            }
+            core = LoadLibrary(dll); if (core == IntPtr.Zero) throw new InvalidOperationException("O Windows não carregou o núcleo embutido Genesis Plus GX: " + Marshal.GetLastWin32Error());
             core = LoadLibrary(dll); if (core == IntPtr.Zero) throw new InvalidOperationException("O Windows não carregou Genesis Plus GX.");
             setVideoCallback(videoCallback); setAudioCallback(audioCallback); setAudioBatchCallback(audioBatchCallback); setInputPollCallback(inputPollCallback); setInputStateCallback(inputStateCallback);
             setEnvironmentCallback(environmentCallback); initCallback(); initialized = true;
